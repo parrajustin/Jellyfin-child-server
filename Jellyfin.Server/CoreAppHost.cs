@@ -4,6 +4,7 @@ using System.Reflection;
 using Emby.Server.Implementations;
 using Emby.Server.Implementations.Session;
 using Jellyfin.Api.WebSocketListeners;
+using Jellyfin.ChildServer;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Drawing;
 using Jellyfin.Drawing.Skia;
@@ -76,6 +77,7 @@ namespace Jellyfin.Server
             }
 
             serviceCollection.AddEventServices();
+            serviceCollection.AddChildServer();
             serviceCollection.AddSingleton<IBaseItemManager, BaseItemManager>();
             serviceCollection.AddSingleton<IEventManager, EventManager>();
 
@@ -125,6 +127,9 @@ namespace Jellyfin.Server
 
             // Jellyfin.LiveTv
             yield return typeof(LiveTvManager).Assembly;
+
+            // Jellyfin.ChildServer
+            yield return typeof(ChildServerManager).Assembly;
         }
     }
 }

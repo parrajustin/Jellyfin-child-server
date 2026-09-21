@@ -1,0 +1,86 @@
+# End-to-end stack for the Jellyfin child server.
+#
+#   parent  official jellyfin/jellyfin:12.1 with the fixture library (.work/parent-media)
+#   gate    node proxy in front of the parent; the ONLY route the child may use (gate/server.mjs)
+#   child   this repository's image (jellyfin-child-server:e2e), parent URL http://gate:8096
+#   e2e     Playwright runner (profile "test"); run it with `docker compose run --rm e2e`
+#
+# Host port map: parent 18096, gate proxy 18097, gate control 18098, child 18196.
+# Use `bash tests/e2e/run.sh` for the whole flow (library, build, up, test, logs, down).
+
+name: jellyfin-child-e2e
+
+services:
+  parent:
+    image: jellyfin/jellyfin:12.1
+    volumes:
+      - ./.work/parent-media:/media:ro
+      - parent-config:/config
+    ports:
+      - "18096:8096"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8096/health || wget -q -O /dev/null http://localhost:8096/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  gate:
+    image: node:24-alpine
+    command: ["node", "/gate/server.mjs"]
+    volumes:
+      - ./gate:/gate:ro
+    environment:
+      GATE_UPSTREAM: http://parent:8096
+      GATE_PORT: "8096"
+      GATE_CONTROL_PORT: "8097"
+    ports:
+      - "18097:8096"
+      - "18098:8097"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8097/state || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  child:
+    image: jellyfin-child-server:e2e
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    volumes:
+      - child-config:/config
+      - child-cache:/cache
+    ports:
+      - "18196:8096"
+    depends_on:
+      - parent
+      - gate
+
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["test"]
+    init: true
+    ipc: host
+    environment:
+      CHILD_URL: http://child:8096
+      PARENT_URL: http://parent:8096
+      GATE_URL: http://gate:8096
+      GATE_CONTROL_URL: http://gate:8097
+      PARENT_URL_FOR_CHILD: http://gate:8096
+      STATE_FILE: /e2e/.work/state.json
+      E2E_IGNORE_SNAPSHOTS: ${E2E_IGNORE_SNAPSHOTS:-0}
+    volumes:
+      - ./test-results:/e2e/test-results
+      - ./specs/__screenshots__:/e2e/specs/__screenshots__
+      - ./.work:/e2e/.work
+    depends_on:
+      - child
+
+volumes:
+  parent-config:
+  child-config:
+  child-cache:

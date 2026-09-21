@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      update_snapshots:
+        description: Regenerate the e2e golden screenshots (download the e2e-screenshots artifact and commit it)
+        type: boolean
+        default: false
+        required: false
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
@@ -32,3 +38,49 @@ jobs:
           --configuration Release
           --no-build
           --verbosity minimal
+
+  e2e:
+    name: End-to-end (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the child server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: jellyfin-child-server:e2e
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run the end-to-end suite
+        env:
+          E2E_SKIP_CHILD_BUILD: "1"
+          UPDATE_SNAPSHOTS: ${{ github.event.inputs.update_snapshots }}
+        run: |
+          args=()
+          if [ "$UPDATE_SNAPSHOTS" = "true" ]; then
+            args+=(--update-snapshots)
+          fi
+          bash tests/e2e/run.sh "${args[@]}"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: tests/e2e/test-results
+          if-no-files-found: ignore
+
+      - name: Upload golden screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: tests/e2e/specs/__screenshots__
+          if-no-files-found: ignore

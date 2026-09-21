@@ -1,0 +1,19 @@
+{
+  "name": "jellyfin-child-server-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Docker based end-to-end tests for the Jellyfin child server (parent + gate + child + Playwright runner)",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "gate": "node gate/server.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.13.6",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

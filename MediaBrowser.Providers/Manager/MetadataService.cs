@@ -248,7 +248,8 @@ namespace MediaBrowser.Providers.Manager
                         {
                             item.DateModified = file.LastWriteTimeUtc;
 
-                            if (!file.IsDirectory)
+                            // An empty file is a child server placeholder whose real size a provider already set.
+                            if (!file.IsDirectory && (file.Length > 0 || !item.Size.HasValue))
                             {
                                 item.Size = file.Length;
                             }

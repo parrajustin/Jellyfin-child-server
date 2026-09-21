@@ -15,6 +15,7 @@ using Jellyfin.Extensions;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Entities;
@@ -46,6 +47,7 @@ public class MediaInfoHelper
     private readonly INetworkManager _networkManager;
     private readonly IDeviceManager _deviceManager;
     private readonly IServerApplicationHost _appHost;
+    private readonly IChildServerMediaCache? _childServerMediaCache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaInfoHelper"/> class.
@@ -59,6 +61,7 @@ public class MediaInfoHelper
     /// <param name="networkManager">Instance of the <see cref="INetworkManager"/> interface.</param>
     /// <param name="deviceManager">Instance of the <see cref="IDeviceManager"/> interface.</param>
     /// <param name="appHost">Instance of the <see cref="IServerApplicationHost"/> interface.</param>
+    /// <param name="childServerMediaCache">Instance of the <see cref="IChildServerMediaCache"/> interface, when this server mirrors a parent server.</param>
     public MediaInfoHelper(
         IUserManager userManager,
         ILibraryManager libraryManager,
@@ -68,7 +71,8 @@ public class MediaInfoHelper
         ILogger<MediaInfoHelper> logger,
         INetworkManager networkManager,
         IDeviceManager deviceManager,
-        IServerApplicationHost appHost)
+        IServerApplicationHost appHost,
+        IChildServerMediaCache? childServerMediaCache = null)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -79,6 +83,7 @@ public class MediaInfoHelper
         _networkManager = networkManager;
         _deviceManager = deviceManager;
         _appHost = appHost;
+        _childServerMediaCache = childServerMediaCache;
     }
 
     /// <summary>
@@ -98,6 +103,18 @@ public class MediaInfoHelper
         string? liveStreamId = null)
     {
         var result = new PlaybackInfoResponse();
+
+        if (_childServerMediaCache is not null && string.IsNullOrWhiteSpace(liveStreamId) && _childServerMediaCache.IsManagedPath(item.Path))
+        {
+            var cacheState = _childServerMediaCache.GetState(item.Path);
+            if (!cacheState.IsCached && !await _childServerMediaCache.IsParentReachableAsync(CancellationToken.None).ConfigureAwait(false))
+            {
+                _logger.LogWarning("Playback of {ItemName} refused: the file is not cached and the parent server is unreachable", item.Name);
+                result.MediaSources = Array.Empty<MediaSourceInfo>();
+                result.ErrorCode = PlaybackErrorCode.ParentServerUnavailable;
+                return result;
+            }
+        }
 
         var mediaSources = await ResolvePlaybackMediaSources(item, user, mediaSourceId, liveStreamId).ConfigureAwait(false);
 

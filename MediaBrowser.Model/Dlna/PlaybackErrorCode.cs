@@ -18,6 +18,11 @@ namespace MediaBrowser.Model.Dlna
         /// <summary>
         /// The rate limit has been exceeded.
         /// </summary>
-        RateLimitExceeded = 2
+        RateLimitExceeded = 2,
+
+        /// <summary>
+        /// The media is not stored on this child server and the parent server cannot be reached.
+        /// </summary>
+        ParentServerUnavailable = 3
     }
 }

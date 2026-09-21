@@ -240,6 +240,48 @@ public class ChildServerManager : IChildServerManager
         return RecordAttempt(result);
     }
 
+    /// <summary>
+    /// Gets a signed in session for the parent server, signing in first when no access token is stored.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The session.</returns>
+    /// <exception cref="ParentServerUnavailableException">The parent is not configured or could not be reached.</exception>
+    public async Task<ParentSession> GetSessionAsync(CancellationToken cancellationToken)
+    {
+        var config = Configuration;
+        if (string.IsNullOrEmpty(config.AccessToken) || string.IsNullOrEmpty(config.ParentUserId))
+        {
+            var result = await ConnectAsync(cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                throw new ParentServerUnavailableException(result.Message);
+            }
+
+            config = Configuration;
+        }
+
+        var baseUrl = ParentServerClient.TryParseBaseUrl(config.ParentUrl)
+            ?? throw new ParentServerUnavailableException("The parent server URL is not configured.");
+
+        return new ParentSession(new ParentEndpoint(baseUrl, config.CustomHeaders), config.AccessToken!, config.ParentUserId!);
+    }
+
+    /// <summary>
+    /// Forgets the stored access token, so the next session signs in again. Called when the parent rejects the token.
+    /// </summary>
+    public void InvalidateSession()
+    {
+        var config = Configuration;
+        if (string.IsNullOrEmpty(config.AccessToken))
+        {
+            return;
+        }
+
+        config.AccessToken = null;
+        _configurationManager.SaveConfiguration(ConfigurationKey, config);
+        _logger.LogInformation("Dropped the parent access token; the next request signs in again");
+    }
+
     private static bool IsConfiguredInternal(ChildServerConfiguration config)
         => ParentServerClient.TryParseBaseUrl(config.ParentUrl) is not null && !string.IsNullOrWhiteSpace(config.Username);
 

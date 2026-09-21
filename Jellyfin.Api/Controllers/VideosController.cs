@@ -14,6 +14,7 @@ using Jellyfin.Extensions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
@@ -47,6 +48,7 @@ public class VideosController : BaseJellyfinApiController
     private readonly ITranscodeManager _transcodeManager;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly EncodingHelper _encodingHelper;
+    private readonly IChildServerMediaCache _childServerMediaCache;
 
     private readonly TranscodingJobType _transcodingJobType = TranscodingJobType.Progressive;
 
@@ -62,6 +64,7 @@ public class VideosController : BaseJellyfinApiController
     /// <param name="transcodeManager">Instance of the <see cref="ITranscodeManager"/> interface.</param>
     /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
     /// <param name="encodingHelper">Instance of <see cref="EncodingHelper"/>.</param>
+    /// <param name="childServerMediaCache">Instance of the <see cref="IChildServerMediaCache"/> interface.</param>
     public VideosController(
         ILibraryManager libraryManager,
         IUserManager userManager,
@@ -71,7 +74,8 @@ public class VideosController : BaseJellyfinApiController
         IMediaEncoder mediaEncoder,
         ITranscodeManager transcodeManager,
         IHttpClientFactory httpClientFactory,
-        EncodingHelper encodingHelper)
+        EncodingHelper encodingHelper,
+        IChildServerMediaCache childServerMediaCache)
     {
         _libraryManager = libraryManager;
         _userManager = userManager;
@@ -82,6 +86,7 @@ public class VideosController : BaseJellyfinApiController
         _transcodeManager = transcodeManager;
         _httpClientFactory = httpClientFactory;
         _encodingHelper = encodingHelper;
+        _childServerMediaCache = childServerMediaCache;
     }
 
     /// <summary>
@@ -473,6 +478,13 @@ public class VideosController : BaseJellyfinApiController
             {
                 var liveStream = new ProgressiveFileStream(state.MediaPath, null, _transcodeManager);
                 return File(liveStream, contentType);
+            }
+
+            var progressiveStream = _childServerMediaCache.OpenProgressiveStream(state.MediaPath);
+            if (progressiveStream is not null)
+            {
+                // The file is still arriving from the parent server; reads wait for the bytes.
+                return File(progressiveStream, contentType, enableRangeProcessing: true);
             }
 
             return FileStreamResponseHelpers.GetStaticFileResult(

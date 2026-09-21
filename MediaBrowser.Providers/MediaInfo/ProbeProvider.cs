@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Emby.Naming.Common;
 using MediaBrowser.Controller.Chapters;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -52,6 +53,7 @@ namespace MediaBrowser.Providers.MediaInfo
         private readonly FFProbeVideoInfo _videoProber;
         private readonly AudioFileProber _audioProber;
         private readonly Task<ItemUpdateType> _cachedTask = Task.FromResult(ItemUpdateType.None);
+        private readonly IChildServerMediaCache _childServerMediaCache;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ProbeProvider"/> class.
@@ -70,6 +72,7 @@ namespace MediaBrowser.Providers.MediaInfo
         /// <param name="lyricManager">Instance of the <see cref="ILyricManager"/> interface.</param>
         /// <param name="mediaAttachmentRepository">Instance of the <see cref="IMediaAttachmentRepository"/> interface.</param>
         /// <param name="mediaStreamRepository">Instance of the <see cref="IMediaStreamRepository"/> interface.</param>
+        /// <param name="childServerMediaCache">Instance of the <see cref="IChildServerMediaCache"/> interface, when this server mirrors a parent server.</param>
         public ProbeProvider(
             IMediaSourceManager mediaSourceManager,
             IMediaEncoder mediaEncoder,
@@ -84,9 +87,11 @@ namespace MediaBrowser.Providers.MediaInfo
             NamingOptions namingOptions,
             ILyricManager lyricManager,
             IMediaAttachmentRepository mediaAttachmentRepository,
-            IMediaStreamRepository mediaStreamRepository)
+            IMediaStreamRepository mediaStreamRepository,
+            IChildServerMediaCache childServerMediaCache = null)
         {
             _logger = loggerFactory.CreateLogger<ProbeProvider>();
+            _childServerMediaCache = childServerMediaCache;
             _audioResolver = new AudioResolver(loggerFactory.CreateLogger<AudioResolver>(), localization, mediaEncoder, fileSystem, namingOptions);
             _subtitleResolver = new SubtitleResolver(loggerFactory.CreateLogger<SubtitleResolver>(), localization, mediaEncoder, fileSystem, namingOptions);
             _lyricResolver = new LyricResolver(loggerFactory.CreateLogger<LyricResolver>(), localization, mediaEncoder, fileSystem, namingOptions);
@@ -304,6 +309,12 @@ namespace MediaBrowser.Providers.MediaInfo
         public Task<ItemUpdateType> FetchVideoInfo<T>(T item, MetadataRefreshOptions options, CancellationToken cancellationToken)
             where T : Video
         {
+            if (_childServerMediaCache?.IsManagedPath(item.Path) == true)
+            {
+                // Mirrored from a parent server: the file may be an empty placeholder, so the parent's probe data is used instead.
+                return _cachedTask;
+            }
+
             if (item.IsPlaceHolder)
             {
                 return _cachedTask;

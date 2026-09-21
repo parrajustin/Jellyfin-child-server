@@ -46,4 +46,44 @@ public class ChildServerStatus
     /// Gets or sets when the last connection attempt happened.
     /// </summary>
     public DateTime? LastConnectionAttemptUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether a library sync is running.
+    /// </summary>
+    public ChildSyncState SyncState { get; set; }
+
+    /// <summary>
+    /// Gets or sets when the last sync started.
+    /// </summary>
+    public DateTime? LastSyncStartedUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets when the last sync finished, whether it succeeded or failed.
+    /// </summary>
+    public DateTime? LastSyncCompletedUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the error of the last sync, or null when it succeeded.
+    /// </summary>
+    public string? LastSyncError { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many media items are mirrored from the parent.
+    /// </summary>
+    public int MirroredItemCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many mirrored items are fully stored on this device.
+    /// </summary>
+    public int CachedItemCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many bytes the cached media files occupy.
+    /// </summary>
+    public long CachedBytes { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many downloads from the parent are queued or running.
+    /// </summary>
+    public int ActiveDownloads { get; set; }
 }

@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Authentication;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Hosting;
@@ -70,7 +71,8 @@ public class ExceptionMiddleware
                 || ex is OperationCanceledException
                 || ex is SecurityException
                 || ex is AuthenticationException
-                || ex is FileNotFoundException;
+                || ex is FileNotFoundException
+                || ex is ParentServerUnavailableException;
 
             if (ignoreStackTrace)
             {
@@ -90,6 +92,11 @@ public class ExceptionMiddleware
             }
 
             context.Response.StatusCode = GetStatusCode(ex);
+            if (ex is ParentServerUnavailableException)
+            {
+                context.Response.Headers["X-Application-Error-Code"] = "ParentServerUnavailable";
+            }
+
             context.Response.ContentType = MediaTypeNames.Text.Plain;
 
             // Don't send exception unless the server is in a Development environment
@@ -131,6 +138,7 @@ public class ExceptionMiddleware
             FileNotFoundException => StatusCodes.Status404NotFound,
             ResourceNotFoundException => StatusCodes.Status404NotFound,
             MethodNotAllowedException => StatusCodes.Status405MethodNotAllowed,
+            ParentServerUnavailableException => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status500InternalServerError
         };
     }

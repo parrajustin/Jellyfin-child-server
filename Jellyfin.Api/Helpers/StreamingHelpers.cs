@@ -10,6 +10,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -18,6 +19,7 @@ using MediaBrowser.Controller.Streaming;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
 
 namespace Jellyfin.Api.Helpers;
@@ -157,6 +159,15 @@ public static class StreamingHelpers
             if (mediaSource.FallbackMaxStreamingBitrate is not null && streamingRequest.VideoBitRate is not null)
             {
                 streamingRequest.VideoBitRate = Math.Min(streamingRequest.VideoBitRate.Value, mediaSource.FallbackMaxStreamingBitrate.Value);
+            }
+        }
+
+        if (mediaSource is not null)
+        {
+            var childServerMediaCache = httpContext.RequestServices.GetService<IChildServerMediaCache>();
+            if (childServerMediaCache is not null)
+            {
+                await childServerMediaCache.PrepareForStreamingAsync(item, mediaSource, streamingRequest.Static, cancellationToken).ConfigureAwait(false);
             }
         }
 

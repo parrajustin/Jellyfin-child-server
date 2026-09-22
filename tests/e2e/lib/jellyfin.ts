@@ -619,19 +619,18 @@ export class JellyfinApi {
     const deadline = Date.now() + timeoutMs;
     const previousCompletedMs = before.LastSyncCompletedUtc ? Date.parse(before.LastSyncCompletedUtc) : Number.NEGATIVE_INFINITY;
     let last = before;
-    let networkFailures = 0;
+    let lastNetworkError: string | null = null;
     while (Date.now() < deadline) {
       await sleep(1_000);
       try {
         last = await this.childStatus();
-        networkFailures = 0;
+        lastNetworkError = null;
       } catch (error) {
-        // A busy child (its library scan runs during the sync) has dropped a connection in CI;
-        // a few failed polls are not a failed sync.
-        networkFailures++;
-        if (networkFailures > 5) {
-          throw error;
-        }
+        // Polling failures are not sync failures. A child that is mirroring a library drops
+        // connections, and Docker's embedded resolver has failed to answer for ten seconds at a
+        // time in CI ("getaddrinfo ENOTFOUND child") while the container was up and working.
+        // Keep asking until the deadline; the message below reports the last failure.
+        lastNetworkError = error instanceof Error ? error.message : String(error);
         continue;
       }
       const startedChanged = !!last.LastSyncStartedUtc && last.LastSyncStartedUtc !== before.LastSyncStartedUtc;
@@ -652,7 +651,8 @@ export class JellyfinApi {
     throw new Error(
       `child sync on ${this.baseUrl} did not complete within ${timeoutMs} ms ` +
         `(state ${last.SyncState}, started ${last.LastSyncStartedUtc ?? 'never'}, ` +
-        `completed ${last.LastSyncCompletedUtc ?? 'never'}, error ${last.LastSyncError ?? 'none'})`,
+        `completed ${last.LastSyncCompletedUtc ?? 'never'}, error ${last.LastSyncError ?? 'none'}` +
+        `${lastNetworkError ? `, last poll failed with: ${lastNetworkError}` : ''})`,
     );
   }
 }

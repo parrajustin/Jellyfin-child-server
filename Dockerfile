@@ -6,7 +6,7 @@
 #
 # Stages:
 #   web     builds the jellyfin-web client at the tag matching this server
-#   server  publishes the .NET server (framework dependent, linux-musl)
+#   server  publishes the .NET server (framework dependent, runtime linux-musl-x64)
 #   final   .NET ASP.NET runtime on Alpine plus ffmpeg and fonts
 ARG DOTNET_VERSION=10.0
 ARG NODE_VERSION=24
@@ -33,8 +33,13 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
 WORKDIR /src
 COPY . .
+# The runtime identifier is explicit. A portable publish copies every platform's native
+# libraries and leaves the choice to the host; on musl that has meant loading a native SkiaSharp
+# built for glibc and dying with SIGSEGV on the first image call. linux-musl-x64 publishes the
+# musl builds and nothing else.
 RUN dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
       --configuration Release \
+      --runtime linux-musl-x64 \
       --no-self-contained \
       --output /server \
       -p:DebugSymbols=false \
@@ -49,13 +54,16 @@ RUN apk add --no-cache \
       ca-certificates \
       ffmpeg \
       fontconfig \
+      font-noto \
+      freetype \
       icu-data-full \
       icu-libs \
       libgcc \
       libstdc++ \
       ttf-dejavu \
       tzdata \
-      wget
+      wget \
+ && fc-cache --force
 
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     JELLYFIN_DATA_DIR=/config \

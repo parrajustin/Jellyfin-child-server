@@ -55,8 +55,26 @@ const HOME_HASH = /^#\/home(\.html)?(\?.*)?$/;
 /** Disables CSS animations and waits for web fonts before a screenshot. */
 export async function stabilize(page: Page): Promise<void> {
   await page.addStyleTag({ content: STABILIZE_CSS });
+  await page.evaluate(() => {
+    document.querySelectorAll('style').forEach((style) => {
+      if (style.textContent?.includes('caret-color: transparent')) {
+        style.dataset.e2eStabilize = 'true';
+      }
+    });
+  });
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+}
+
+/**
+ * Undoes {@link stabilize}. jellyfin-web hides a dialog only when its exit animation ends, so a
+ * page that still has animations disabled keeps every dialog on screen. Call this before driving
+ * the page again after a screenshot.
+ */
+export async function resumeAnimations(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document.querySelectorAll('style[data-e2e-stabilize]').forEach((style) => style.remove());
+  });
 }
 
 /** Signs in through the login page and waits for the home route. */

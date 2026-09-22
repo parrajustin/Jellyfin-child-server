@@ -98,6 +98,43 @@ public class ParentLibraryReader
     }
 
     /// <summary>
+    /// Gets the direct children of a folder, in sort name order: sub folders, series, seasons and media items.
+    /// </summary>
+    /// <param name="session">The parent session.</param>
+    /// <param name="parentId">The folder id.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The children.</returns>
+    public async Task<IReadOnlyList<BaseItemDto>> GetChildrenAsync(ParentSession session, Guid parentId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        var items = new List<BaseItemDto>();
+        var startIndex = 0;
+        while (true)
+        {
+            var path = "Items?userId=" + Uri.EscapeDataString(session.UserId)
+                + "&parentId=" + parentId.ToString("N", CultureInfo.InvariantCulture)
+                + "&fields=" + Uri.EscapeDataString(ItemFields)
+                + "&sortBy=SortName&sortOrder=Ascending"
+                + "&startIndex=" + startIndex.ToString(CultureInfo.InvariantCulture)
+                + "&limit=" + PageSize.ToString(CultureInfo.InvariantCulture);
+
+            var page = await GetJsonAsync<QueryResult<BaseItemDto>>(session, path, _listTimeout, cancellationToken).ConfigureAwait(false);
+            var pageItems = page.Items ?? Array.Empty<BaseItemDto>();
+            items.AddRange(pageItems);
+
+            if (pageItems.Count < PageSize || items.Count >= page.TotalRecordCount)
+            {
+                break;
+            }
+
+            startIndex += pageItems.Count;
+        }
+
+        return items;
+    }
+
+    /// <summary>
     /// Downloads an image of an item, scaled down for the local sidecar.
     /// </summary>
     /// <param name="session">The parent session.</param>

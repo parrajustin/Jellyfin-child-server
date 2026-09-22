@@ -143,7 +143,7 @@ export interface PlaybackInfoResponse {
   ErrorCode?: string | null;
 }
 
-export type CollectionType = 'movies' | 'tvshows';
+export type CollectionType = 'movies' | 'tvshows' | 'homevideos';
 
 // ---------------------------------------------------------------------------
 // Child server contract
@@ -619,9 +619,21 @@ export class JellyfinApi {
     const deadline = Date.now() + timeoutMs;
     const previousCompletedMs = before.LastSyncCompletedUtc ? Date.parse(before.LastSyncCompletedUtc) : Number.NEGATIVE_INFINITY;
     let last = before;
+    let networkFailures = 0;
     while (Date.now() < deadline) {
       await sleep(1_000);
-      last = await this.childStatus();
+      try {
+        last = await this.childStatus();
+        networkFailures = 0;
+      } catch (error) {
+        // A busy child (its library scan runs during the sync) has dropped a connection in CI;
+        // a few failed polls are not a failed sync.
+        networkFailures++;
+        if (networkFailures > 5) {
+          throw error;
+        }
+        continue;
+      }
       const startedChanged = !!last.LastSyncStartedUtc && last.LastSyncStartedUtc !== before.LastSyncStartedUtc;
       const completedChanged = !!last.LastSyncCompletedUtc && last.LastSyncCompletedUtc !== before.LastSyncCompletedUtc;
       if (last.SyncState !== 'Idle') {

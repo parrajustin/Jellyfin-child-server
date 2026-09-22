@@ -30,7 +30,10 @@ export const FIXTURE = {
   libraries: [
     { name: 'Movies', collectionType: 'movies' as CollectionType, path: `${env.parentMediaRoot}${mediaSeparator}Movies` },
     { name: 'TV Shows', collectionType: 'tvshows' as CollectionType, path: `${env.parentMediaRoot}${mediaSeparator}TV Shows` },
+    { name: 'Home Videos', collectionType: 'homevideos' as CollectionType, path: `${env.parentMediaRoot}${mediaSeparator}Home Videos` },
   ],
+  /** Plain videos in the home videos library (not counted in `items`, which covers movies and episodes). */
+  homeVideos: 4,
 } as const;
 
 const HEALTH_TIMEOUT_MS = 180_000;

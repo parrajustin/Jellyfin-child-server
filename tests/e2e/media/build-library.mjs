@@ -35,7 +35,12 @@ const layout = [
   ['TV Shows/Supernatural/Season 02/Supernatural S02E05.avi', 0],
   ['TV Shows/Supernatural/Season 02/Supernatural S02E06.avi', 1],
   ['TV Shows/Supernatural/Season 02/Supernatural S02E07.avi', 2],
-  ['TV Shows/Supernatural/Season 03/Supernatural S03E01.avi', 3]
+  ['TV Shows/Supernatural/Season 03/Supernatural S03E01.avi', 3],
+  // A home videos library keeps its folder structure on the child.
+  ['Home Videos/2018/Beach Trip/Arrival.avi', 0],
+  ['Home Videos/2018/Beach Trip/Sunset.avi', 1],
+  ['Home Videos/2018/Birthday.avi', 2],
+  ['Home Videos/Clips/Garden.avi', 3]
 ];
 
 let written = 0;

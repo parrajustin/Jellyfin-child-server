@@ -25,6 +25,7 @@ namespace Jellyfin.ChildServer.Mirror;
 public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
 {
     private const string RefreshLibraryTaskKey = "RefreshLibrary";
+    private const int MaxTreeDepth = 24;
     private const int PosterWidth = 600;
     private const int BackdropWidth = 1280;
     private const int ThumbWidth = 640;
@@ -132,11 +133,32 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
         _syncLock.Dispose();
     }
 
+    /// <summary>
+    /// Whether a parent library holds videos and is therefore mirrored. Music, books, photos, collections,
+    /// playlists and live TV are not.
+    /// </summary>
+    private static bool IsMirrored(CollectionType? collectionType)
+        => collectionType is null
+            or CollectionType.unknown
+            or CollectionType.folders
+            or CollectionType.movies
+            or CollectionType.tvshows
+            or CollectionType.homevideos
+            or CollectionType.musicvideos;
+
+    /// <summary>
+    /// Movie and show libraries are laid out by naming convention; every other video library keeps the parent's folders.
+    /// </summary>
+    private static bool UsesFlatLayout(CollectionType? collectionType)
+        => collectionType is CollectionType.movies or CollectionType.tvshows;
+
     private static CollectionTypeOptions? MapCollectionType(CollectionType? collectionType)
         => collectionType switch
         {
             CollectionType.movies => CollectionTypeOptions.movies,
             CollectionType.tvshows => CollectionTypeOptions.tvshows,
+            CollectionType.homevideos => CollectionTypeOptions.homevideos,
+            CollectionType.musicvideos => CollectionTypeOptions.musicvideos,
             _ => null
         };
 
@@ -282,8 +304,8 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
 
         var session = await _manager.GetSessionAsync(cancellationToken).ConfigureAwait(false);
         var views = await _reader.GetViewsAsync(session, cancellationToken).ConfigureAwait(false);
-        var supported = views.Where(v => MapCollectionType(v.CollectionType) is not null).ToList();
-        _logger.LogInformation("Parent server has {Total} libraries, {Supported} of them are mirrored", views.Count, supported.Count);
+        var supported = views.Where(v => IsMirrored(v.CollectionType)).ToList();
+        _logger.LogInformation("Parent server has {Total} libraries, {Supported} of them hold videos and are mirrored", views.Count, supported.Count);
 
         var libraryRoot = _paths.LibraryRoot;
         Directory.CreateDirectory(libraryRoot);
@@ -300,9 +322,19 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
             Directory.CreateDirectory(viewRoot);
             seenViews.Add(viewName);
 
-            var kinds = view.CollectionType == CollectionType.tvshows ? _seriesKinds : _movieKinds;
-            var items = await _reader.GetViewItemsAsync(session, view.Id, kinds, cancellationToken).ConfigureAwait(false);
-            var plan = BuildPlan(viewName, viewRoot, items);
+            MirrorPlan plan;
+            if (UsesFlatLayout(view.CollectionType))
+            {
+                var kinds = view.CollectionType == CollectionType.tvshows ? _seriesKinds : _movieKinds;
+                var items = await _reader.GetViewItemsAsync(session, view.Id, kinds, cancellationToken).ConfigureAwait(false);
+                plan = BuildPlan(viewName, viewRoot, items);
+            }
+            else
+            {
+                plan = new MirrorPlan();
+                await AddTreeAsync(session, plan, viewName, viewRoot, view.Id, 0, cancellationToken).ConfigureAwait(false);
+            }
+
             await ApplyPlanAsync(session, plan, seenPaths, cancellationToken).ConfigureAwait(false);
 
             registered |= await EnsureLibraryAsync(viewName, viewRoot, view.CollectionType, cancellationToken).ConfigureAwait(false);
@@ -391,8 +423,69 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
         return plan;
     }
 
+    /// <summary>
+    /// Mirrors a folder of the parent as it is: sub folders keep their names, shows and seasons get their
+    /// sidecars, and every video becomes a placeholder file. Used for home video, mixed and untyped libraries.
+    /// </summary>
+    private async Task AddTreeAsync(ParentSession session, MirrorPlan plan, string viewName, string folder, Guid parentId, int depth, CancellationToken cancellationToken)
+    {
+        if (depth > MaxTreeDepth)
+        {
+            _logger.LogWarning("Skipping {Folder}: the parent library is nested deeper than {Depth} levels", folder, MaxTreeDepth);
+            return;
+        }
+
+        var children = await _reader.GetChildrenAsync(session, parentId, cancellationToken).ConfigureAwait(false);
+        var usedNames = new HashSet<string>(MirrorManifest.PathComparer);
+        foreach (var child in children)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (child.IsFolder == true)
+            {
+                var folderName = Disambiguate(
+                    child.Type == BaseItemKind.Series ? MirrorPathBuilder.TitledFolderName(child) : MirrorPathBuilder.SanitizeName(child.Name, "Folder"),
+                    child,
+                    usedNames);
+                var path = Path.Combine(folder, folderName);
+                switch (child.Type)
+                {
+                    case BaseItemKind.Series:
+                        plan.AddFolderOnce(new FolderPlan(path, child, Path.Combine(path, "tvshow.nfo"), Path.Combine(path, "poster"), Path.Combine(path, "fanart")));
+                        break;
+                    case BaseItemKind.Season:
+                    {
+                        var seasonNumber = child.IndexNumber;
+                        var seasonImageName = seasonNumber == 0 ? "season-specials-poster" : "season" + (seasonNumber ?? 1).ToString("00", CultureInfo.InvariantCulture) + "-poster";
+                        plan.AddFolderOnce(new FolderPlan(path, child, Path.Combine(path, "season.nfo"), Path.Combine(folder, seasonImageName), null));
+                        break;
+                    }
+
+                    default:
+                        plan.Directories.Add(path);
+                        break;
+                }
+
+                await AddTreeAsync(session, plan, viewName, path, child.Id, depth + 1, cancellationToken).ConfigureAwait(false);
+            }
+            else if (child.MediaType == MediaType.Video)
+            {
+                var baseName = child.Type == BaseItemKind.Episode
+                    ? MirrorPathBuilder.EpisodeFileName(child.SeriesName, child)
+                    : MirrorPathBuilder.SanitizeName(child.Name, "Video");
+                baseName = Disambiguate(baseName, child, usedNames);
+                var file = Path.Combine(folder, baseName + "." + MirrorPathBuilder.GetExtension(child));
+                plan.Videos.Add(new VideoPlan(file, child, viewName, Path.Combine(folder, baseName + ".nfo"), Path.Combine(folder, baseName + "-thumb")));
+            }
+        }
+    }
+
     private async Task ApplyPlanAsync(ParentSession session, MirrorPlan plan, HashSet<string> seenPaths, CancellationToken cancellationToken)
     {
+        foreach (var directory in plan.Directories)
+        {
+            Directory.CreateDirectory(directory);
+        }
+
         foreach (var folder in plan.Folders)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -563,6 +656,11 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
     private sealed class MirrorPlan
     {
         private readonly HashSet<string> _folderPaths = new(MirrorManifest.PathComparer);
+
+        /// <summary>
+        /// Gets plain folders to create, with no sidecars.
+        /// </summary>
+        public List<string> Directories { get; } = new();
 
         public List<FolderPlan> Folders { get; } = new();
 

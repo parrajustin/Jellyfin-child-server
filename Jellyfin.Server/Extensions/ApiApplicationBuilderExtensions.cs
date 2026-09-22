@@ -118,5 +118,17 @@ namespace Jellyfin.Server.Extensions
         {
             return appBuilder.UseMiddleware<RobotsRedirectionMiddleware>();
         }
+
+        /// <summary>
+        /// Serves the web client's index page and config file with the child server plugin added, plus the plugin script.
+        /// Must run before the web client's static files.
+        /// </summary>
+        /// <param name="appBuilder">The application builder.</param>
+        /// <param name="webPath">The folder that holds the web client.</param>
+        /// <returns>The updated application builder.</returns>
+        public static IApplicationBuilder UseChildServerWebClient(this IApplicationBuilder appBuilder, string webPath)
+        {
+            return appBuilder.UseMiddleware<ChildServerWebClientMiddleware>(webPath);
+        }
     }
 }

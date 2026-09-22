@@ -206,6 +206,9 @@ namespace Jellyfin.Server
                     // subtitles octopus requires .data, .mem files.
                     extensionProvider.Mappings.Add(".data", MediaTypeNames.Application.Octet);
                     extensionProvider.Mappings.Add(".mem", MediaTypeNames.Application.Octet);
+
+                    // The child server rewrites the index page and config file to load its web client plugin.
+                    mainApp.UseChildServerWebClient(_serverConfigurationManager.ApplicationPaths.WebPath);
                     mainApp.UseDefaultFiles(new DefaultFilesOptions
                     {
                         FileProvider = new PhysicalFileProvider(_serverConfigurationManager.ApplicationPaths.WebPath),

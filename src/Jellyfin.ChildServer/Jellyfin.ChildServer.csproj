@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Pages\childserver-parent.html" LogicalName="Jellyfin.ChildServer.Pages.childserver-parent.html" />
+    <EmbeddedResource Include="Pages\childserver-plugin.js" LogicalName="Jellyfin.ChildServer.Pages.childserver-plugin.js" />
   </ItemGroup>
 
   <ItemGroup>

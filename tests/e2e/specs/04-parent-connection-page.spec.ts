@@ -10,6 +10,9 @@ import { CREDENTIALS, SERVER_NAMES, env } from '../lib/env';
 import { login, selectors, stabilize } from '../lib/ui';
 
 test.describe.configure({ mode: 'serial' });
+// The dashboard page scrolls inside its own container; a tall viewport lets one element
+// screenshot show the whole page including the outcome message and the status block.
+test.use({ viewport: { width: 1280, height: 1800 } });
 
 const PAGE_NAME = 'ChildServerParent';
 const PAGE_ROUTE = `${env.childUrl}/web/#/configurationpage?name=${PAGE_NAME}`;

@@ -14,6 +14,7 @@ import { readState, type E2EState } from '../lib/state';
 import { login, stabilize } from '../lib/ui';
 
 test.describe.configure({ mode: 'serial' });
+test.use({ viewport: { width: 1280, height: 1800 } });
 
 const PAGE_ROUTE = `${env.childUrl}/web/#/configurationpage?name=ChildServerParent`;
 const OUTCOME = /^(Success|InvalidCredentials|AccessDenied|ConnectionFailed|InvalidResponse|NotConfigured|RequestFailed)$/;

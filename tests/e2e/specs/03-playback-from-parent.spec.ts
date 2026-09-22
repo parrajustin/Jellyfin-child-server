@@ -144,5 +144,10 @@ test('home shows the mirrored libraries', async ({ page }) => {
   await expect(home.getByText('TV Shows', { exact: true }).first()).toBeVisible({ timeout: 60_000 });
 
   await stabilize(page);
-  await expect(page).toHaveScreenshot('home.png', { fullPage: false });
+  // "Recently added" rows order items by scan time, which ties within a second, so only the
+  // library tiles ("My Media", the first section) are compared pixel by pixel.
+  await expect(page).toHaveScreenshot('home.png', {
+    fullPage: false,
+    mask: [page.locator(`${selectors.homeSections} > *:not(:first-child)`)],
+  });
 });

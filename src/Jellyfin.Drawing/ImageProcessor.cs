@@ -12,6 +12,7 @@ using AsyncKeyedLock;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
@@ -40,6 +41,7 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
     private readonly IFileSystem _fileSystem;
     private readonly IServerApplicationPaths _appPaths;
     private readonly IImageEncoder _imageEncoder;
+    private readonly IChildServerManager? _childServerManager;
 
     private readonly AsyncNonKeyedLocker _parallelEncodingLimit;
 
@@ -53,17 +55,20 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
     /// <param name="fileSystem">The filesystem.</param>
     /// <param name="imageEncoder">The image encoder.</param>
     /// <param name="config">The configuration.</param>
+    /// <param name="childServerManager">The child server manager, when this server mirrors a parent.</param>
     public ImageProcessor(
         ILogger<ImageProcessor> logger,
         IServerApplicationPaths appPaths,
         IFileSystem fileSystem,
         IImageEncoder imageEncoder,
-        IServerConfigurationManager config)
+        IServerConfigurationManager config,
+        IChildServerManager? childServerManager = null)
     {
         _logger = logger;
         _fileSystem = fileSystem;
         _imageEncoder = imageEncoder;
         _appPaths = appPaths;
+        _childServerManager = childServerManager;
 
         var semaphoreCount = config.Configuration.ParallelImageEncodingLimit;
         if (semaphoreCount < 1)
@@ -108,7 +113,23 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         };
 
     /// <inheritdoc />
-    public bool SupportsImageCollageCreation => _imageEncoder.SupportsImageCollageCreation;
+    public bool SupportsImageCollageCreation
+    {
+        get
+        {
+            // A child server shows the artwork its parent has; it never composes a library poster
+            // out of the items it mirrors. Besides being the wrong picture to show, the collage
+            // builder draws text with the platform's native font stack, which segfaults the whole
+            // server on Alpine (exit 139, no managed exception). Answering false here keeps the
+            // dynamic image providers away from it.
+            if (_childServerManager?.IsConfigured == true)
+            {
+                return false;
+            }
+
+            return _imageEncoder.SupportsImageCollageCreation;
+        }
+    }
 
     /// <inheritdoc />
     public IReadOnlyCollection<ImageFormat> GetSupportedImageOutputFormats()

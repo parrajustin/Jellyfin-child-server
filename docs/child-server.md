@@ -1,0 +1,89 @@
+# Jellyfin child server
+
+A Jellyfin server that mirrors a parent Jellyfin server and keeps only the media being
+watched on its own disk. This document covers configuration; `progress.md` at the repository
+root tracks the project itself.
+
+## Connecting to the parent
+
+Open the dashboard and pick **Parent server** in the menu (or go to
+`/web/#/configurationpage?name=ChildServerParent`). Enter:
+
+- **Parent server URL**: the address this device uses to reach the parent, including the
+  port and any base path, for example `http://192.168.1.10:8096` or
+  `https://media.example.com/jellyfin`.
+- **User name** and **password**: an account on the parent server. The child signs in as
+  that user, so it sees exactly the libraries that user can see. The password is stored so
+  the child can sign in again when the parent revokes the access token.
+
+**Test connection** tries the values in the form without saving them and reports one of:
+
+| Outcome | Meaning |
+|---|---|
+| Connected | The parent answered and accepted the credentials; its name and version are shown. |
+| Incorrect user name or password | The parent rejected the sign in. |
+| Access denied | The parent, or a gateway in front of it, refused the request before sign in (HTTP 401 or 403). Usually missing gateway headers, see below. |
+| Could not connect to the parent server | Nothing answered at the address, or it timed out. |
+| That address is not a Jellyfin server | Something answered, but not with Jellyfin's API (for example a login page). |
+
+**Save** stores the settings, signs in, and confirms with "Settings saved". **Sync now**
+mirrors the parent's libraries immediately; a scheduled task (`Sync parent server library`)
+also runs at startup and every *Sync interval* hours.
+
+## Parent behind Cloudflare Access (Zero Trust)
+
+When the parent is published through a Cloudflare tunnel with an Access policy, plain
+requests are redirected to a login page. Create a **service token** in Zero Trust
+(Access > Service Auth > Service Tokens) and allow it in the application's policy, then add
+its two headers under **Extra request headers**:
+
+| Header | Value |
+|---|---|
+| `CF-Access-Client-Id` | the service token's client id (ends with `.access`) |
+| `CF-Access-Client-Secret` | the service token's client secret |
+
+The child sends every configured header with every request to the parent: connection
+tests, sign in, library reads, image and media downloads. Any gateway that authenticates by
+header works the same way. Header names are validated (no spaces, colons or control
+characters); values are stored as entered.
+
+The end-to-end suite proves this with a proxy that refuses requests lacking the headers
+(`tests/e2e/specs/05-custom-headers.spec.ts`).
+
+## Cache settings
+
+- **Episodes to prefetch**: how many following episodes are downloaded while an episode
+  plays (default 4).
+- **Cache size limit (MB)**: above this, the least recently played files are removed first
+  (they turn back into placeholders and are fetched again when played). 0 disables the limit.
+- **Download wait timeout (seconds)**: how long a transcoded playback waits for a file that
+  is not on the device yet. Direct play streams start while the file downloads.
+- **Sync interval (hours)**: how often the parent library is mirrored.
+
+## Where things live
+
+- Settings: `<config>/childserver.xml` (contains the parent password and access token; keep
+  the data folder private).
+- Mirrored library: `<data>/childserver/library/<Parent library name>/...`, registered as
+  local libraries with internet metadata providers disabled. Placeholders are empty files
+  next to `.nfo` sidecars and small images; downloaded media replaces the placeholder in
+  place.
+- Mirror manifest: `<data>/childserver/mirror.json`.
+
+## API
+
+All endpoints need an administrator except the availability one.
+
+| Method and path | Purpose |
+|---|---|
+| `GET /ChildServer/Configuration` | Settings without secrets |
+| `POST /ChildServer/Configuration` | Save settings (empty password keeps the stored one) |
+| `POST /ChildServer/TestConnection` | Try a URL, user name, password and headers without saving |
+| `POST /ChildServer/Connect` | Sign in with the stored settings |
+| `GET /ChildServer/Status` | Connection, sync and cache state |
+| `POST /ChildServer/Sync` | Start a library sync in the background |
+| `GET /ChildServer/Items/{id}/Availability` | Whether an item is cached, downloading, and whether the parent answers (any signed in user) |
+
+When an item is not cached and the parent cannot be reached, `POST /Items/{id}/PlaybackInfo`
+answers with `ErrorCode: "ParentServerUnavailable"` and stream requests answer HTTP 503
+with the header `X-Application-Error-Code: ParentServerUnavailable`.

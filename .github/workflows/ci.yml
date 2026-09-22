@@ -11,6 +11,11 @@ on:
         type: boolean
         default: false
         required: false
+      release:
+        description: Run ./release (every suite, then build and tag the Alpine image)
+        type: boolean
+        default: false
+        required: false
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
@@ -83,4 +88,31 @@ jobs:
         with:
           name: e2e-screenshots
           path: tests/e2e/specs/__screenshots__
+          if-no-files-found: ignore
+
+  release:
+    name: Release (./release)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.SDK_VERSION }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      # ./release runs the unit and integration suites, then the Docker browser suite, and only
+      # then builds and tags the Alpine image. It fails the job at the first step that fails.
+      - name: Release
+        run: bash ./release
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-e2e-results
+          path: tests/e2e/test-results
           if-no-files-found: ignore

@@ -364,23 +364,33 @@ export class JellyfinApi {
   async waitForHealthy(timeoutMs: number = 120_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     let last = 'no attempt yet';
+    let readyStreak = 0;
     for (;;) {
       try {
         const response = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(5_000) });
         const text = (await response.text()).trim();
         if (response.status === 200) {
           // /health turns green before the API does: until startup finishes, API routes answer
-          // with an HTML "server is starting" page, so also require JSON from the public info route.
+          // with an HTML "server is starting" page, and a fresh server can drop connections for a
+          // moment while it finishes starting. Require JSON from the public info route twice in a row.
           const info = await fetch(`${this.baseUrl}/System/Info/Public`, { signal: AbortSignal.timeout(5_000) });
           const contentType = info.headers.get('content-type') ?? '';
           if (info.status === 200 && contentType.includes('json')) {
-            return;
+            readyStreak++;
+            if (readyStreak >= 2) {
+              return;
+            }
+            last = 'API answered once; confirming';
+          } else {
+            readyStreak = 0;
+            last = `API not ready: HTTP ${info.status} ${contentType}`;
           }
-          last = `API not ready: HTTP ${info.status} ${contentType}`;
         } else {
+          readyStreak = 0;
           last = `HTTP ${response.status} ${text.slice(0, 80)}`;
         }
       } catch (error) {
+        readyStreak = 0;
         last = describeError(error);
       }
       if (Date.now() >= deadline) {

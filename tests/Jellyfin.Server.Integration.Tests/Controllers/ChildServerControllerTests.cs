@@ -46,7 +46,7 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
         }
 
         [Fact]
-        public async Task GetStatus_AsAdministrator_NotConfigured()
+        public async Task GetStatus_AsAdministrator_ReportsAnUnconnectedChild()
         {
             var client = _factory.CreateClient();
             client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
@@ -56,8 +56,13 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var status = await response.Content.ReadFromJsonAsync<ChildServerStatus>(_jsonOptions, TestContext.Current.CancellationToken);
             Assert.NotNull(status);
-            Assert.False(status.IsConfigured);
+
+            // Other tests in this class may have saved settings, but nothing in here can ever sign in or sync.
             Assert.False(status.IsAuthenticated);
+            Assert.Equal(ChildSyncState.Idle, status.SyncState);
+            Assert.Equal(0, status.MirroredItemCount);
+            Assert.Equal(0, status.CachedItemCount);
+            Assert.Equal(0, status.ActiveDownloads);
         }
 
         [Fact]
@@ -128,6 +133,10 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
             Assert.Equal(3, saved.PrefetchEpisodeCount);
             var header = Assert.Single(saved.CustomHeaders);
             Assert.Equal("CF-Access-Client-Id", header.Name);
+
+            // Leave the shared server unconfigured for the other tests in this class.
+            var resetResponse = await client.PostAsJsonAsync("/ChildServer/Configuration", new ChildServerSettings(), _jsonOptions, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, resetResponse.StatusCode);
         }
     }
 }

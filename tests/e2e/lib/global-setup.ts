@@ -17,6 +17,9 @@ import {
   type ServerState,
 } from './state';
 
+/** The parent runs on Linux in Docker and on Windows for a local run; a mixed separator breaks its scan. */
+const mediaSeparator = env.parentMediaRoot.includes('\\') ? '\\' : '/';
+
 /** What tests/e2e/media/build-library.mjs lays out (see tests/e2e/media/README.md). */
 export const FIXTURE = {
   items: 13,
@@ -25,8 +28,8 @@ export const FIXTURE = {
   seasons: 3,
   series: 'Supernatural',
   libraries: [
-    { name: 'Movies', collectionType: 'movies' as CollectionType, path: `${env.parentMediaRoot}/Movies` },
-    { name: 'TV Shows', collectionType: 'tvshows' as CollectionType, path: `${env.parentMediaRoot}/TV Shows` },
+    { name: 'Movies', collectionType: 'movies' as CollectionType, path: `${env.parentMediaRoot}${mediaSeparator}Movies` },
+    { name: 'TV Shows', collectionType: 'tvshows' as CollectionType, path: `${env.parentMediaRoot}${mediaSeparator}TV Shows` },
   ],
 } as const;
 

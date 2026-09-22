@@ -21,4 +21,11 @@
     <ProjectReference Include="../../MediaBrowser.Controller/MediaBrowser.Controller.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Several classes set static BaseItem services; running collections in parallel made tests flake in CI. -->
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

@@ -74,4 +74,10 @@ public interface IChildServerMediaCache
     /// </summary>
     /// <returns>The statistics.</returns>
     ChildCacheStatistics GetStatistics();
+
+    /// <summary>
+    /// Turns every cached file that is not being read or downloaded back into a placeholder.
+    /// </summary>
+    /// <returns>How many files were cleared.</returns>
+    int ClearCache();
 }

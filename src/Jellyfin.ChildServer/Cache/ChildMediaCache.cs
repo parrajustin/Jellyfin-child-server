@@ -46,6 +46,7 @@ public sealed class ChildMediaCache : IChildServerMediaCache, IDisposable
     private Task? _worker;
     private DateTime _reachabilityCheckedUtc = DateTime.MinValue;
     private bool _reachable;
+    private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChildMediaCache"/> class.
@@ -281,14 +282,79 @@ public sealed class ChildMediaCache : IChildServerMediaCache, IDisposable
         return new ChildCacheStatistics(entries.Count, cachedCount, cachedBytes, ActiveDownloads);
     }
 
+    /// <inheritdoc />
+    public int ClearCache()
+    {
+        var cleared = 0;
+        foreach (var entry in _manifest.GetAll())
+        {
+            if (!GetCachedBytes(entry).HasValue || IsBusy(entry.Path))
+            {
+                continue;
+            }
+
+            if (TruncateToPlaceholder(entry))
+            {
+                cleared++;
+            }
+        }
+
+        if (cleared > 0)
+        {
+            _manifest.Save();
+        }
+
+        _logger.LogInformation("Cleared {Count} cached files from the media cache", cleared);
+        return cleared;
+    }
+
     /// <summary>
     /// Forgets the last reachability answer so the next check asks the parent again.
     /// </summary>
     public void ResetReachability() => _reachabilityCheckedUtc = DateTime.MinValue;
 
+    private bool IsBusy(string path)
+    {
+        if (_readers.TryGetValue(path, out var readers) && readers > 0)
+        {
+            return true;
+        }
+
+        lock (_lock)
+        {
+            return _jobs.ContainsKey(path);
+        }
+    }
+
+    private bool TruncateToPlaceholder(MirrorEntry entry)
+    {
+        try
+        {
+            using (var stream = new FileStream(entry.Path, FileMode.Open, FileAccess.Write, FileShare.None))
+            {
+                stream.SetLength(0);
+            }
+
+            entry.IsCached = false;
+            return true;
+        }
+        catch (IOException ex)
+        {
+            _logger.LogWarning(ex, "Could not turn {Name} back into a placeholder", entry.Name);
+            return false;
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
+        // The container disposes this instance once per registration (as itself and as the interface).
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         _shutdown.Cancel();
         _shutdown.Dispose();
         _reachabilityLock.Dispose();

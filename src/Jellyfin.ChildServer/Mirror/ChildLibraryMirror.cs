@@ -43,6 +43,7 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
     private readonly SemaphoreSlim _syncLock = new(1, 1);
     private readonly Lock _stateLock = new();
     private Task? _currentSync;
+    private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChildLibraryMirror"/> class.
@@ -122,6 +123,12 @@ public sealed class ChildLibraryMirror : IChildServerLibrarySync, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         _syncLock.Dispose();
     }
 

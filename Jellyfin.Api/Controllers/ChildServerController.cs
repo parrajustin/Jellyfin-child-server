@@ -149,6 +149,19 @@ public class ChildServerController : BaseJellyfinApiController
     }
 
     /// <summary>
+    /// Turns every cached media file that is not being played or downloaded back into a placeholder.
+    /// </summary>
+    /// <response code="200">The number of files cleared.</response>
+    /// <returns>How many files were cleared.</returns>
+    [HttpPost("Cache/Clear")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<int> ClearCache()
+    {
+        return _mediaCache.ClearCache();
+    }
+
+    /// <summary>
     /// Tells whether an item's media is stored on this device or still has to come from the parent server.
     /// </summary>
     /// <param name="itemId">The item id.</param>

@@ -50,6 +50,31 @@ characters); values are stored as entered.
 The end-to-end suite proves this with a proxy that refuses requests lacking the headers
 (`tests/e2e/specs/05-custom-headers.spec.ts`).
 
+## What is mirrored
+
+Every video library the parent exposes: movies, TV shows, home videos, music videos, and
+folder libraries with no collection type. Music, books and photos are not mirrored.
+
+Movies and TV shows are laid out the way the Jellyfin scanner expects
+(`Movies/Name (Year)/Name (Year).ext`, `TV Shows/Series/Season 02/Series S02E01.ext`).
+Every other library keeps the parent's own folder structure, so a viewer browsing the child
+sees the same folders in the same order. Nesting deeper than 24 levels is skipped and logged.
+Two items with the same name in one folder are kept apart by appending a short id.
+
+## When the parent is unreachable
+
+Playing a video that is already on the device always works. Playing one that is not, while
+the parent does not answer, is refused rather than left to fail in the player: the web client
+shows
+
+> **Can't connect to parent server**
+> "<name>" is not stored on this device and the parent server cannot be reached. Try again
+> when the parent server is back online.
+
+The child does this by serving jellyfin-web with one extra script of its own
+(`/web/childserver-plugin.js`, listed in the served `/web/config.json`), which asks the
+availability endpoint before playback starts. jellyfin-web itself is not modified.
+
 ## Cache settings
 
 - **Episodes to prefetch**: how many following episodes are downloaded while an episode
@@ -82,8 +107,17 @@ All endpoints need an administrator except the availability one.
 | `POST /ChildServer/Connect` | Sign in with the stored settings |
 | `GET /ChildServer/Status` | Connection, sync and cache state |
 | `POST /ChildServer/Sync` | Start a library sync in the background |
+| `POST /ChildServer/Cache/Clear` | Turn every downloaded file back into a placeholder; answers the number cleared |
 | `GET /ChildServer/Items/{id}/Availability` | Whether an item is cached, downloading, and whether the parent answers (any signed in user) |
 
 When an item is not cached and the parent cannot be reached, `POST /Items/{id}/PlaybackInfo`
 answers with `ErrorCode: "ParentServerUnavailable"` and stream requests answer HTTP 503
 with the header `X-Application-Error-Code: ParentServerUnavailable`.
+
+## Building a release
+
+`./release` at the repository root is the only supported way to build the container. It
+builds the solution, runs the unit and integration suites, runs the browser suite against a
+real parent, gateway and child in Docker, and only then builds and tags the image from the
+repository `Dockerfile`, whose runtime stage is Alpine. Any failing step stops it and
+nothing is tagged. `./release --help` lists the options.

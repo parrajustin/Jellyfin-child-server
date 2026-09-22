@@ -65,6 +65,12 @@ namespace Emby.Server.Implementations.Library
     {
         private const string ShortcutFileExtension = ".mblink";
 
+        /// <summary>
+        /// The longest parent/owner chain <see cref="GetCollectionFolders(BaseItem, IEnumerable{Folder})"/> will walk.
+        /// A real chain is a handful of levels deep; a longer one means it loops, which would spin this thread forever.
+        /// </summary>
+        private const int MaxCollectionFolderWalkDepth = 128;
+
         private readonly ILogger<LibraryManager> _logger;
         private readonly ITaskManager _taskManager;
         private readonly IUserManager _userManager;
@@ -2840,8 +2846,26 @@ namespace Emby.Server.Implementations.Library
 
         public List<Folder> GetCollectionFolders(BaseItem item, IEnumerable<Folder> allUserRootChildren)
         {
+            var start = item;
+            var remaining = MaxCollectionFolderWalkDepth;
             while (item is not null)
             {
+                if (--remaining < 0)
+                {
+                    // An item that owns itself, or two items that own each other, never reach a library
+                    // root. Give up on the walk rather than spinning, and name the item so the cycle can
+                    // be found.
+                    _logger.LogError(
+                        "Gave up looking for the library folder of {Path}: its parent chain does not reach a library root within {Depth} levels, and loops at {LoopPath} ({LoopId}, parent {ParentId}, owner {OwnerId})",
+                        start?.Path,
+                        MaxCollectionFolderWalkDepth,
+                        item.Path,
+                        item.Id,
+                        item.ParentId,
+                        item.OwnerId);
+                    return [];
+                }
+
                 var parent = item.GetParent();
 
                 if (parent is AggregateFolder)
@@ -3483,8 +3507,17 @@ namespace Emby.Server.Implementations.Library
 
             void AddCandidate(FileSystemMetadata file, ExtraType extraType, ExtraRule extraRule, bool isInMixedFolder)
             {
+                // Nothing is its own extra. A video that sits directly in a folder named after an
+                // extra type, "clips" for example, is resolved as a library item in its own right and
+                // then matches the rule for its own folder. Owning itself would leave it out of every
+                // library, and walking its owner chain would never reach a library root.
+                if (string.Equals(file.FullName, owner.Path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
                 var extra = ResolvePath(_fileSystem.GetFileInfo(file.FullName), directoryService, _extraResolver.GetResolversForExtraType(extraType));
-                if (extra is Video or Audio)
+                if (extra is Video or Audio && !extra.Id.Equals(owner.Id))
                 {
                     candidates.Add(new ExtraCandidate(extra, extraType, extraRule, isInMixedFolder));
                 }

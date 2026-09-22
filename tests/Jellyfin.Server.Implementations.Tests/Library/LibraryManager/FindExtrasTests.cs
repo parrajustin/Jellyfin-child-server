@@ -584,4 +584,66 @@ public class FindExtrasTests
         Assert.Equal("/movies/Up/trailers/Official.mp4", extras[1].Path);
         Assert.Equal("/movies/Up/trailers/Teaser.mkv", extras[2].Path);
     }
+
+    [Fact]
+    public void FindExtras_VideoInsideAnExtrasFolder_IsNotItsOwnExtra()
+    {
+        // A home video library shows the files in a "clips" folder as items of their own. Such an
+        // item matches the extra rule for the folder it sits in, which used to make it its own
+        // extra: it then had no parent and owned itself, and the library scan spun forever walking
+        // that chain looking for the library root.
+        var owner = new Video { Name = "Garden", Path = "/home videos/Clips/Garden.mkv" };
+        var paths = new List<string>
+        {
+            "/home videos/Clips/Garden.mkv",
+            "/home videos/Clips/Garden.nfo"
+        };
+
+        var files = paths.Select(p => new FileSystemMetadata
+        {
+            FullName = p,
+            Name = Path.GetFileName(p),
+            IsDirectory = false
+        }).ToList();
+
+        var extras = _libraryManager.FindExtras(owner, files, new DirectoryService(_fileSystemMock.Object)).ToList();
+
+        Assert.Empty(extras);
+    }
+
+    [Fact]
+    public void FindExtras_SiblingsInsideAnExtrasFolder_AreStillExtrasOfTheirOwner()
+    {
+        // The fix above must not cost the owner its real extras.
+        var owner = new Movie { Name = "Up", Path = "/movies/Up/Up.mkv" };
+        var paths = new List<string>
+        {
+            "/movies/Up/Up.mkv",
+            "/movies/Up/clips"
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(
+                "/movies/Up/clips",
+                It.IsAny<string[]>(),
+                false,
+                false))
+            .Returns(
+            [
+                new() { FullName = "/movies/Up/clips/Balloons.mkv", Name = "Balloons.mkv", IsDirectory = false }
+            ]).Verifiable();
+
+        var files = paths.Select(p => new FileSystemMetadata
+        {
+            FullName = p,
+            Name = Path.GetFileName(p),
+            IsDirectory = !Path.HasExtension(p)
+        }).ToList();
+
+        var extras = _libraryManager.FindExtras(owner, files, new DirectoryService(_fileSystemMock.Object)).ToList();
+
+        _fileSystemMock.Verify();
+        var extra = Assert.Single(extras);
+        Assert.Equal("/movies/Up/clips/Balloons.mkv", extra.Path);
+        Assert.Equal(ExtraType.Clip, extra.ExtraType);
+    }
 }

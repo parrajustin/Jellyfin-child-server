@@ -1,6 +1,6 @@
 # Jellyfin child server: progress
 
-Last updated: 2026-09-21 (session 2). Repository: https://github.com/parrajustin/Jellyfin-child-server, branch `main`.
+Last updated: 2026-09-21 (session 2, everything green in CI). Repository: https://github.com/parrajustin/Jellyfin-child-server, branch `main`.
 
 ## Goal
 
@@ -22,9 +22,9 @@ tag v12.1 with no upstream git history, one conventional commit per step.
 | 5 | Custom header support (Cloudflare Zero Trust and the like) | Done, pushed | `d81c4b8` |
 | 6 | Prefetch the next episodes (up to 4 away) while watching | Done, pushed | `1d68993` |
 | 7 | Child shows all parent content: all folders, movies and TV shows | Done, pushed | `3571f2a`, and the upstream scan fix `ffd3597` |
-| 8 | Golden image UI tests for every step | Specs cover every step; one golden file is committed, the rest are being generated in CI | see "Golden test images" |
+| 8 | Golden image UI tests for every step | Done, pushed: eleven goldens generated in CI and compared by every later run | `7aa06c9`, see "Golden test images" |
 | 9 | "Can't connect to parent server" when the parent is down | Done, pushed | `acf6d96` |
-| 10 | `./release` building the Alpine container, all tests must pass first | Done, pushed | `6eed657` |
+| 10 | `./release` building the Alpine container, all tests must pass first | Done, pushed and proven green in CI | `6eed657`, `8458fb2` |
 
 ## Actions taken
 
@@ -119,6 +119,26 @@ Fixed in two places: `FindExtras` skips a candidate whose path or id is the owne
 `GetCollectionFolders` stops after 128 levels and logs the item it loops on instead of spinning. Two
 regression tests were added to the upstream `FindExtrasTests`.
 
+### A second crash found by running it on Alpine
+
+About half of the CI runs then died in the browser suite with "getaddrinfo ENOTFOUND child" or
+"fetch failed" during the first library sync. The container had exited with code 139, a
+segmentation fault, which takes its name out of Docker's resolver and makes a dead server look like
+a network fault. The suite now records every container's exit code and its OOMKilled flag before
+tearing the stack down, which is how this was pinned in one run instead of three.
+
+The crash was always at the same point: the scan reaching `CollectionPosterVerifyPostScanTask`,
+which refreshes a library with no poster, which asks the dynamic image provider to compose one out
+of the mirrored items. That collage draws the library name with the platform's native font stack,
+and on Alpine it takes the whole process down with no managed exception. It is intermittent because
+the provider picks its source images at random. Publishing for `linux-musl-x64` and installing Noto
+with a font cache did not change it; both stay in the image because they are right for an Alpine
+build, but neither was the fix.
+
+The fix is that a child server does not compose artwork at all. When a parent is configured, the
+image processor reports that it cannot create collages, and every dynamic image provider leaves
+that path alone. A library whose poster is not mirrored shows the web client's default tile.
+
 ### Step 9: "Can't connect to parent server"
 
 - The child injects a small script into the web client it serves, without forking jellyfin-web:
@@ -145,21 +165,25 @@ demand through the workflow's `release` input.
 
 ## Remaining steps
 
-1. **Goldens (step 8)**: the CI run with `update_snapshots = true` produces every screenshot; download
-   the `e2e-screenshots` artifact and commit the PNGs listed below. Until then only `player-osd.png`
-   is committed and the other screenshot assertions are skipped.
-2. **A green CI `e2e` run** with the goldens in place, and one `release` run to prove the Alpine image
-   builds from these commits.
-3. **Housekeeping**: register the project in the project standard registry and write the feature docs.
+All ten requested steps are done, pushed, and green in CI. What is left is worth doing but was not
+asked for:
+
+1. **Mirror the parent's library posters.** The child no longer composes them, so a library tile is
+   the web client default unless the parent's own poster is copied into the library folder. Twenty
+   or so lines in `ChildLibraryMirror`, plus refreshed goldens.
+2. **Report the upstream bugs** to Jellyfin: the self-owning extra that hangs a scan, and the
+   collage builder taking the process down on Alpine.
+3. **Mirror the library types that are still skipped**: music, books and photos, plus collections
+   and extras.
+4. **A real device.** Nothing here has run on the low-disk machine this is meant for.
 
 ## Golden test images
 
 - Location: `tests/e2e/specs/__screenshots__/<spec file name>/<screenshot name>.png`, from
   `snapshotPathTemplate: '{testDir}/__screenshots__/{testFileName}/{arg}{ext}'` in
   `tests/e2e/playwright.config.ts`, deliberately without a platform suffix.
-- Committed today:
-  - `tests/e2e/specs/__screenshots__/03-playback-from-parent.spec.ts/player-osd.png`
-- Expected once generated in CI:
+- All eleven are committed and every CI run compares against them:
+  - `03-playback-from-parent.spec.ts/player-osd.png`
   - `03-playback-from-parent.spec.ts/home.png`
   - `04-parent-connection-page.spec.ts/parent-page-loaded.png`
   - `04-parent-connection-page.spec.ts/parent-page-invalid-password.png`
@@ -292,6 +316,11 @@ Design choices
   has to call `resumeAnimations()` first. This cost an afternoon once.
 - Library paths given to Jellyfin on Windows must use backslashes. A path like `C:/Users/...` is
   accepted by the API and then scanned as empty, which looks like a broken fixture.
+- Library tiles on the child show the web client's default image, because the child no longer
+  composes library posters and does not yet copy the parent's.
+- SkiaSharp takes the process down on Alpine when it composes a collage. The child avoids that path,
+  but any other feature that reaches it (a playlist or genre poster, for instance) would hit the
+  same crash. A Debian base image would not have this problem, but the brief asked for Alpine.
 - One upstream unit test (`BaseItemTests.PropagatePlayedState_WithoutReset_LeavesPositionUntouched`)
   flaked once and passed on rerun. Spec 05's settings page test also stalled once for twenty minutes
   on this machine with no server activity, and passed in three seconds on rerun; if either recurs in
@@ -301,21 +330,26 @@ Design choices
 
 ## Verification record
 
-- **Verified in CI (Linux, Docker)**: the v12.1 import builds and the upstream suite passes; steps 2
-  to 6 unit and integration tests pass; one full `e2e` run of the Docker suite completed and produced
-  the first screenshots. A run of every suite against the commits for steps 7, 9 and 10 is in flight
-  at the time of writing.
-- **Verified on this machine (Windows, no Docker)**: Debug build clean under Jellyfin's analyzers;
-  90 child server unit tests, 132 integration tests and the upstream implementation tests pass; the
-  local two-server harness (parent, gate proxy, child, all from the Debug build with jellyfin-web
-  v12.1 and jellyfin-ffmpeg 8.1.2) mirrors 17 items from an empty data directory, and all 23 browser
+- **Verified in CI (Ubuntu runners, Docker), run 35682011833 on commit `8458fb2`, all three jobs
+  green**:
+  - the solution builds in Release and the whole upstream xunit suite passes, including the two new
+    extras regressions and the 90 child server tests;
+  - the browser suite runs against a real parent, gateway proxy and child in containers: 23 of 23
+    tests pass, comparing against the eleven committed goldens;
+  - `./release` runs all of that again and then builds the container image, tags it
+    `12.1.0`, `8458fb2` and `latest`, and confirms the running image is Alpine.
+- **Verified on this machine (Windows on ARM, no Docker)**: Debug build clean under Jellyfin's
+  analyzers; 90 child server unit tests, 132 integration tests and the upstream implementation tests
+  pass; a local two-server harness (parent, gate proxy, child, built from source with jellyfin-web
+  v12.1 and jellyfin-ffmpeg 8.1.2) mirrors 17 items from an empty data directory and all 23 browser
   tests pass against it with screenshot comparison off.
-- **The extras fix**: the hang was reproduced on the child and on a plain parent with the same media,
-  then a from-scratch parent scan and child mirror were confirmed to complete with the loop guard
-  never firing.
-- **Not verified**: the Alpine image build since these changes (no Docker here; the `release` CI job
-  exists to prove it), the Docker suite since step 6, every golden screenshot except the player, and
-  any real deployment on a low-disk device.
+- **The two crashes**: each was reproduced first, then fixed, then shown gone. The scan hang was
+  reproduced on the child and on a plain parent with the same media, and a from-scratch scan now
+  completes with the loop guard never firing. The Alpine segfault was pinned to exit code 139 from
+  the container state the suite now records, and the runs since the fix are green.
+- **Not verified**: any deployment on a real low-disk device; the image running anywhere other than
+  the CI runner; behaviour against a parent library larger than the seventeen item fixture; and the
+  gateway header path against a real Cloudflare Access tunnel rather than the test proxy.
 
 ## How to run
 

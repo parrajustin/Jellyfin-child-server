@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Net;
 using System.Net.Http.Json;
@@ -83,7 +84,27 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
 
             var data = await response.Content.ReadFromJsonAsync<ConfigurationPageInfo[]>(_jsonOptions, TestContext.Current.CancellationToken);
             Assert.NotNull(data);
-            Assert.Empty(data);
+
+            // The child server adds its "Parent server" page to the dashboard menu; no plugin page is installed.
+            var page = Assert.Single(data);
+            Assert.Equal("ChildServerParent", page.Name);
+            Assert.Equal("Parent server", page.DisplayName);
+            Assert.True(page.EnableInMainMenu);
+            Assert.Null(page.PluginId);
+        }
+
+        [Fact]
+        public async Task GetDashboardConfigurationPage_ChildServerPage_ServesHtml()
+        {
+            var client = _factory.CreateClient();
+
+            var response = await client.GetAsync("/web/ConfigurationPage?name=ChildServerParent", TestContext.Current.CancellationToken);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(MediaTypeNames.Text.Html, response.Content.Headers.ContentType?.MediaType);
+            var html = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.Contains("id=\"childServerParentPage\"", html, StringComparison.Ordinal);
+            Assert.Contains("data-role=\"page\"", html, StringComparison.Ordinal);
         }
     }
 }

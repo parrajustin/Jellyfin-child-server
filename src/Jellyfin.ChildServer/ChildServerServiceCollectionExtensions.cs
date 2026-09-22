@@ -1,5 +1,6 @@
 using Jellyfin.ChildServer.Cache;
 using Jellyfin.ChildServer.Mirror;
+using Jellyfin.ChildServer.Pages;
 using MediaBrowser.Controller.ChildServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -31,6 +32,7 @@ public static class ChildServerServiceCollectionExtensions
         services.AddSingleton<ChildMediaCache>();
         services.AddSingleton<IChildServerMediaCache>(provider => provider.GetRequiredService<ChildMediaCache>());
         services.AddSingleton<IChildServerLibrarySync, ChildLibraryMirror>();
+        services.AddSingleton<IChildServerWebPages, ChildServerWebPages>();
         return services;
     }
 }

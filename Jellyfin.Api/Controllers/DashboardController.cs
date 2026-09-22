@@ -7,6 +7,7 @@ using Jellyfin.Api.Attributes;
 using Jellyfin.Api.Models;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller.ChildServer;
 using MediaBrowser.Model.Net;
 using MediaBrowser.Model.Plugins;
 using Microsoft.AspNetCore.Authorization;
@@ -25,18 +26,22 @@ public class DashboardController : BaseJellyfinApiController
 {
     private readonly ILogger<DashboardController> _logger;
     private readonly IPluginManager _pluginManager;
+    private readonly IChildServerWebPages? _childServerWebPages;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DashboardController"/> class.
     /// </summary>
     /// <param name="logger">Instance of <see cref="ILogger{DashboardController}"/> interface.</param>
     /// <param name="pluginManager">Instance of <see cref="IPluginManager"/> interface.</param>
+    /// <param name="childServerWebPages">Instance of <see cref="IChildServerWebPages"/> interface, when this server mirrors a parent server.</param>
     public DashboardController(
         ILogger<DashboardController> logger,
-        IPluginManager pluginManager)
+        IPluginManager pluginManager,
+        IChildServerWebPages? childServerWebPages = null)
     {
         _logger = logger;
         _pluginManager = pluginManager;
+        _childServerWebPages = childServerWebPages;
     }
 
     /// <summary>
@@ -54,6 +59,10 @@ public class DashboardController : BaseJellyfinApiController
         [FromQuery] bool? enableInMainMenu)
     {
         var configPages = _pluginManager.Plugins.SelectMany(GetConfigPages).ToList();
+        if (_childServerWebPages is not null)
+        {
+            configPages.AddRange(_childServerWebPages.GetPages().Select(page => new ConfigurationPageInfo(null, page)));
+        }
 
         if (enableInMainMenu.HasValue)
         {
@@ -76,6 +85,15 @@ public class DashboardController : BaseJellyfinApiController
     [ProducesFile(MediaTypeNames.Text.Html, "application/x-javascript")]
     public ActionResult GetDashboardConfigurationPage([FromQuery] string? name)
     {
+        if (_childServerWebPages is not null && !string.IsNullOrEmpty(name))
+        {
+            var builtIn = _childServerWebPages.Open(name);
+            if (builtIn is not null)
+            {
+                return File(builtIn.Value.Content, builtIn.Value.ContentType);
+            }
+        }
+
         var altPage = GetPluginPages().FirstOrDefault(p => string.Equals(p.Item1.Name, name, StringComparison.OrdinalIgnoreCase));
         if (altPage is null)
         {

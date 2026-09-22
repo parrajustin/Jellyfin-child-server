@@ -1,0 +1,405 @@
+<div id="childServerParentPage" data-role="page" class="page type-interior childServerPage">
+    <style>
+        .childServerPage .childServerContent { max-width: 56em; }
+        .childServerPage .childServerIntro { margin: 0 0 1.5em; opacity: .85; line-height: 1.5; }
+        .childServerPage h1.sectionTitle { margin: 0 0 .25em; }
+        .childServerPage h2.sectionTitle { font-size: 1.25em; margin: 1.75em 0 .5em; }
+        .childServerPage .csField { margin: 0 0 1.1em; }
+        .childServerPage .csField label { display: block; font-size: .9em; margin: 0 0 .35em; opacity: .9; }
+        .childServerPage .csField input[type="text"],
+        .childServerPage .csField input[type="url"],
+        .childServerPage .csField input[type="password"],
+        .childServerPage .csField input[type="number"],
+        .childServerPage .csHeaderRow input {
+            box-sizing: border-box; width: 100%; padding: .6em .75em; font: inherit; color: inherit;
+            background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .22); border-radius: .3em; outline: none;
+        }
+        .childServerPage .csField input:focus, .childServerPage .csHeaderRow input:focus { border-color: #00a4dc; box-shadow: 0 0 0 2px rgba(0, 164, 220, .35); }
+        .childServerPage .csHelp { font-size: .85em; opacity: .7; margin: .35em 0 0; }
+        .childServerPage .csGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12em, 1fr)); gap: 0 1.25em; }
+        .childServerPage .csHeaderRow { display: grid; grid-template-columns: 1fr 1fr auto; gap: .5em; align-items: center; margin: 0 0 .5em; }
+        .childServerPage .csHeaderRow .csRemoveHeader { min-width: 0; padding: .45em .9em; }
+        .childServerPage .csEmptyHeaders { font-size: .9em; opacity: .7; margin: 0 0 .75em; }
+        .childServerPage .csButtons { display: flex; flex-wrap: wrap; gap: .75em; margin: 1.5em 0 1em; }
+        .childServerPage .csButtons button { margin: 0; }
+        .childServerPage .csStatus { display: none; padding: .85em 1em; margin: .75em 0 0; border-radius: .3em; border-left: .35em solid #888; background: rgba(255, 255, 255, .06); line-height: 1.5; }
+        .childServerPage .csStatus.is-visible { display: block; }
+        .childServerPage .csStatus.is-success { border-left-color: #52b54b; }
+        .childServerPage .csStatus.is-error { border-left-color: #cc3333; }
+        .childServerPage .csStatus.is-pending { border-left-color: #00a4dc; }
+        .childServerPage .csStatusTitle { font-weight: 600; margin: 0 0 .15em; }
+        .childServerPage .csStatusDetail { margin: 0; opacity: .85; }
+        .childServerPage dl.csFacts { display: grid; grid-template-columns: max-content 1fr; gap: .35em 1.25em; margin: 0; }
+        .childServerPage dl.csFacts dt { opacity: .7; }
+        .childServerPage dl.csFacts dd { margin: 0; }
+        .childServerPage .csBadge { display: inline-block; padding: .1em .55em; border-radius: 1em; font-size: .85em; background: rgba(255, 255, 255, .12); }
+        .childServerPage .csBadge.is-on { background: rgba(82, 181, 75, .3); }
+        .childServerPage .csBadge.is-off { background: rgba(204, 51, 51, .3); }
+    </style>
+    <div>
+        <div class="content-primary childServerContent">
+            <form class="childServerForm" autocomplete="off" novalidate>
+                <div class="verticalSection">
+                    <div class="sectionTitleContainer flex align-items-center">
+                        <h1 class="sectionTitle">Parent server</h1>
+                    </div>
+                    <p class="childServerIntro">
+                        This child server mirrors the libraries of a parent Jellyfin server. Only the videos being watched,
+                        and the episodes likely to follow, are stored on this device. Sign in below with an account on the parent server.
+                    </p>
+                </div>
+
+                <div class="csField">
+                    <label for="txtParentUrl">Parent server URL</label>
+                    <input id="txtParentUrl" name="parentUrl" type="url" placeholder="http://192.168.1.10:8096" spellcheck="false" />
+                    <div class="csHelp">The address this device uses to reach the parent, including the port and any base path.</div>
+                </div>
+                <div class="csGrid">
+                    <div class="csField">
+                        <label for="txtParentUsername">User name</label>
+                        <input id="txtParentUsername" name="username" type="text" spellcheck="false" />
+                    </div>
+                    <div class="csField">
+                        <label for="txtParentPassword">Password</label>
+                        <input id="txtParentPassword" name="password" type="password" autocomplete="new-password" />
+                        <div class="csHelp" id="passwordHelp">Leave empty to keep the stored password.</div>
+                    </div>
+                </div>
+
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Extra request headers</h2>
+                    <div class="csHelp" style="margin: 0 0 .75em;">Sent with every request to the parent. Use this for a parent behind Cloudflare Access (service token headers) or a similar gateway.</div>
+                    <div id="headerRows"></div>
+                    <p class="csEmptyHeaders" id="emptyHeaders">No extra headers.</p>
+                    <button is="emby-button" type="button" class="raised" id="btnAddHeader">Add header</button>
+                </div>
+
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Cache</h2>
+                    <div class="csGrid">
+                        <div class="csField">
+                            <label for="numPrefetch">Episodes to prefetch</label>
+                            <input id="numPrefetch" type="number" min="0" max="50" step="1" />
+                            <div class="csHelp">Downloaded ahead while an episode plays.</div>
+                        </div>
+                        <div class="csField">
+                            <label for="numCacheMb">Cache size limit (MB)</label>
+                            <input id="numCacheMb" type="number" min="0" step="1" />
+                            <div class="csHelp">Least recently played files are removed first. 0 disables the limit.</div>
+                        </div>
+                        <div class="csField">
+                            <label for="numWaitSeconds">Download wait timeout (seconds)</label>
+                            <input id="numWaitSeconds" type="number" min="0" max="86400" step="1" />
+                            <div class="csHelp">How long a playback request waits for a file that is not on this device yet.</div>
+                        </div>
+                        <div class="csField">
+                            <label for="numSyncHours">Sync interval (hours)</label>
+                            <input id="numSyncHours" type="number" min="1" max="168" step="1" />
+                            <div class="csHelp">How often the parent library is mirrored.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="csButtons">
+                    <button is="emby-button" type="button" class="raised" id="btnTestConnection">Test connection</button>
+                    <button is="emby-button" type="submit" class="raised button-submit" id="btnSave">Save</button>
+                    <button is="emby-button" type="button" class="raised" id="btnSyncNow">Sync now</button>
+                </div>
+                <div class="csStatus" id="connectionStatus" role="status" aria-live="polite" data-status="">
+                    <p class="csStatusTitle" id="connectionStatusTitle"></p>
+                    <p class="csStatusDetail" id="connectionStatusDetail"></p>
+                </div>
+            </form>
+
+            <div class="verticalSection">
+                <h2 class="sectionTitle">Status</h2>
+                <dl class="csFacts" id="statusFacts">
+                    <dt>Configured</dt><dd id="factConfigured">-</dd>
+                    <dt>Signed in</dt><dd id="factSignedIn">-</dd>
+                    <dt>Parent server</dt><dd id="factParent">-</dd>
+                    <dt>Library sync</dt><dd id="factSync">-</dd>
+                    <dt>Last sync</dt><dd id="factLastSync" class="childServerTime">-</dd>
+                    <dt>Mirrored items</dt><dd id="factMirrored">-</dd>
+                    <dt>On this device</dt><dd id="factCached">-</dd>
+                    <dt>Downloads</dt><dd id="factDownloads">-</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var pages = document.querySelectorAll('#childServerParentPage');
+            var page = pages[pages.length - 1];
+            if (!page || page.dataset.childServerBound === '1') {
+                return;
+            }
+            page.dataset.childServerBound = '1';
+
+            var form = page.querySelector('.childServerForm');
+            var byId = function (id) { return page.querySelector('#' + id); };
+            var status = byId('connectionStatus');
+            var syncTimer = null;
+
+            function apiUrl(path) {
+                return ApiClient.getUrl('ChildServer/' + path);
+            }
+
+            function getJson(path) {
+                return ApiClient.getJSON(apiUrl(path));
+            }
+
+            function postJson(path, body) {
+                return ApiClient.ajax({
+                    type: 'POST',
+                    url: apiUrl(path),
+                    data: body === undefined ? undefined : JSON.stringify(body),
+                    contentType: 'application/json',
+                    dataType: 'json'
+                });
+            }
+
+            function postNoContent(path, body) {
+                return ApiClient.ajax({
+                    type: 'POST',
+                    url: apiUrl(path),
+                    data: body === undefined ? undefined : JSON.stringify(body),
+                    contentType: 'application/json'
+                });
+            }
+
+            function showStatus(kind, statusCode, title, detail) {
+                status.className = 'csStatus is-visible is-' + kind;
+                status.dataset.status = statusCode || '';
+                byId('connectionStatusTitle').textContent = title || '';
+                byId('connectionStatusDetail').textContent = detail || '';
+            }
+
+            function hideStatus() {
+                status.className = 'csStatus';
+                status.dataset.status = '';
+            }
+
+            function describeResult(result) {
+                var titles = {
+                    Success: 'Connected',
+                    InvalidCredentials: 'Incorrect user name or password',
+                    AccessDenied: 'Access denied',
+                    ConnectionFailed: 'Could not connect to the parent server',
+                    InvalidResponse: 'That address is not a Jellyfin server',
+                    NotConfigured: 'Not configured'
+                };
+                var title = titles[result.Status] || ('Result: ' + result.Status);
+                var detail = result.Message || '';
+                if (result.Status === 'Success' && result.ServerName) {
+                    detail = result.ServerName + ' (version ' + (result.ServerVersion || '?') + '). ' + detail;
+                }
+                showStatus(result.Status === 'Success' ? 'success' : 'error', result.Status, title, detail);
+            }
+
+            function requestFailed(error) {
+                var text = 'The request failed.';
+                if (error && typeof error.status === 'number') {
+                    text = 'The request failed with HTTP ' + error.status + '.';
+                }
+                showStatus('error', 'RequestFailed', 'Something went wrong', text);
+            }
+
+            function headerRow(name, value) {
+                var row = document.createElement('div');
+                row.className = 'csHeaderRow';
+                var nameInput = document.createElement('input');
+                nameInput.type = 'text';
+                nameInput.className = 'csHeaderName';
+                nameInput.placeholder = 'Header name, e.g. CF-Access-Client-Id';
+                nameInput.spellcheck = false;
+                nameInput.value = name || '';
+                var valueInput = document.createElement('input');
+                valueInput.type = 'text';
+                valueInput.className = 'csHeaderValue';
+                valueInput.placeholder = 'Value';
+                valueInput.spellcheck = false;
+                valueInput.value = value || '';
+                var remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'raised csRemoveHeader';
+                remove.setAttribute('is', 'emby-button');
+                remove.textContent = 'Remove';
+                remove.addEventListener('click', function () {
+                    row.remove();
+                    updateHeaderPlaceholder();
+                });
+                row.appendChild(nameInput);
+                row.appendChild(valueInput);
+                row.appendChild(remove);
+                return row;
+            }
+
+            function updateHeaderPlaceholder() {
+                byId('emptyHeaders').style.display = byId('headerRows').children.length ? 'none' : '';
+            }
+
+            function readHeaders() {
+                var rows = page.querySelectorAll('.csHeaderRow');
+                var headers = [];
+                for (var i = 0; i < rows.length; i++) {
+                    var name = rows[i].querySelector('.csHeaderName').value.trim();
+                    if (!name) {
+                        continue;
+                    }
+                    headers.push({ Name: name, Value: rows[i].querySelector('.csHeaderValue').value.trim() });
+                }
+                return headers;
+            }
+
+            function readNumber(id, fallback) {
+                var value = parseInt(byId(id).value, 10);
+                return isNaN(value) ? fallback : value;
+            }
+
+            function readSettings() {
+                return {
+                    ParentUrl: byId('txtParentUrl').value.trim(),
+                    Username: byId('txtParentUsername').value.trim(),
+                    Password: byId('txtParentPassword').value,
+                    CustomHeaders: readHeaders(),
+                    PrefetchEpisodeCount: readNumber('numPrefetch', 4),
+                    MaxCacheSizeMb: readNumber('numCacheMb', 5120),
+                    DownloadWaitTimeoutSeconds: readNumber('numWaitSeconds', 900),
+                    SyncIntervalHours: readNumber('numSyncHours', 6)
+                };
+            }
+
+            function fillSettings(settings) {
+                byId('txtParentUrl').value = settings.ParentUrl || '';
+                byId('txtParentUsername').value = settings.Username || '';
+                byId('txtParentPassword').value = '';
+                byId('passwordHelp').textContent = settings.HasPassword
+                    ? 'A password is stored. Leave empty to keep it.'
+                    : 'No password is stored yet.';
+                var rows = byId('headerRows');
+                rows.textContent = '';
+                (settings.CustomHeaders || []).forEach(function (header) {
+                    rows.appendChild(headerRow(header.Name, header.Value));
+                });
+                updateHeaderPlaceholder();
+                byId('numPrefetch').value = settings.PrefetchEpisodeCount;
+                byId('numCacheMb').value = settings.MaxCacheSizeMb;
+                byId('numWaitSeconds').value = settings.DownloadWaitTimeoutSeconds;
+                byId('numSyncHours').value = settings.SyncIntervalHours;
+            }
+
+            function badge(on, onText, offText) {
+                return '<span class="csBadge ' + (on ? 'is-on' : 'is-off') + '">' + (on ? onText : offText) + '</span>';
+            }
+
+            function formatBytes(bytes) {
+                if (!bytes) {
+                    return '0 MB';
+                }
+                var mb = bytes / (1024 * 1024);
+                return (mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(1) + ' MB');
+            }
+
+            function fillStatus(s) {
+                byId('factConfigured').innerHTML = badge(s.IsConfigured, 'Yes', 'No');
+                byId('factSignedIn').innerHTML = badge(s.IsAuthenticated, 'Yes', 'No');
+                byId('factParent').textContent = s.ParentServerName ? (s.ParentServerName + (s.ParentServerVersion ? ' (' + s.ParentServerVersion + ')' : '')) : '-';
+                var sync = s.SyncState === 'Running' ? 'Running' : (s.LastSyncError ? 'Failed: ' + s.LastSyncError : (s.LastSyncCompletedUtc ? 'Idle' : 'Never run'));
+                byId('factSync').textContent = sync;
+                byId('factLastSync').textContent = s.LastSyncCompletedUtc ? new Date(s.LastSyncCompletedUtc).toLocaleString() : '-';
+                byId('factMirrored').textContent = String(s.MirroredItemCount || 0);
+                byId('factCached').textContent = (s.CachedItemCount || 0) + ' files, ' + formatBytes(s.CachedBytes);
+                byId('factDownloads').textContent = String(s.ActiveDownloads || 0);
+                return s;
+            }
+
+            function refreshStatus() {
+                return getJson('Status').then(fillStatus);
+            }
+
+            function setBusy(busy) {
+                var buttons = page.querySelectorAll('.csButtons button');
+                for (var i = 0; i < buttons.length; i++) {
+                    buttons[i].disabled = busy;
+                }
+            }
+
+            function pollSync() {
+                if (syncTimer) {
+                    clearTimeout(syncTimer);
+                }
+                syncTimer = setTimeout(function () {
+                    refreshStatus().then(function (s) {
+                        if (s.SyncState === 'Running') {
+                            pollSync();
+                        } else if (s.LastSyncError) {
+                            showStatus('error', 'SyncFailed', 'Library sync failed', s.LastSyncError);
+                        } else {
+                            showStatus('success', 'SyncCompleted', 'Library sync finished', (s.MirroredItemCount || 0) + ' items are mirrored from the parent.');
+                        }
+                    }).catch(requestFailed);
+                }, 2000);
+            }
+
+            byId('btnAddHeader').addEventListener('click', function () {
+                byId('headerRows').appendChild(headerRow('', ''));
+                updateHeaderPlaceholder();
+                var inputs = page.querySelectorAll('.csHeaderName');
+                inputs[inputs.length - 1].focus();
+            });
+
+            byId('btnTestConnection').addEventListener('click', function () {
+                var settings = readSettings();
+                setBusy(true);
+                showStatus('pending', 'Testing', 'Testing the connection', 'Contacting ' + (settings.ParentUrl || 'the parent server') + '...');
+                postJson('TestConnection', {
+                    Url: settings.ParentUrl,
+                    Username: settings.Username,
+                    Password: settings.Password,
+                    CustomHeaders: settings.CustomHeaders
+                }).then(describeResult).catch(requestFailed).then(function () { setBusy(false); });
+            });
+
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                var settings = readSettings();
+                setBusy(true);
+                showStatus('pending', 'Saving', 'Saving', 'Storing the settings and signing in to the parent server...');
+                postNoContent('Configuration', settings).then(function () {
+                    return postJson('Connect').then(function (result) {
+                        describeResult(result);
+                        if (result.Status === 'Success') {
+                            Dashboard.processPluginConfigurationUpdateResult();
+                        }
+                        return getJson('Configuration').then(fillSettings).then(refreshStatus);
+                    });
+                }).catch(function (error) {
+                    if (error && error.status === 400 && typeof error.text === 'function') {
+                        error.text().then(function (text) {
+                            showStatus('error', 'InvalidSettings', 'These settings cannot be saved', text.replace(/^"|"$/g, ''));
+                        });
+                        return;
+                    }
+                    requestFailed(error);
+                }).then(function () { setBusy(false); });
+            });
+
+            byId('btnSyncNow').addEventListener('click', function () {
+                setBusy(true);
+                showStatus('pending', 'Syncing', 'Library sync started', 'Reading the parent library and updating the mirrored items...');
+                postNoContent('Sync').then(function () {
+                    pollSync();
+                }).catch(requestFailed).then(function () { setBusy(false); });
+            });
+
+            page.addEventListener('viewdestroy', function () {
+                if (syncTimer) {
+                    clearTimeout(syncTimer);
+                }
+            });
+
+            hideStatus();
+            getJson('Configuration').then(fillSettings).then(refreshStatus).catch(requestFailed);
+        })();
+    </script>
+</div>

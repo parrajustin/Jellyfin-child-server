@@ -1,6 +1,7 @@
 # Jellyfin child server: progress
 
-Last updated: 2026-09-21 (session 2, everything green in CI). Repository: https://github.com/parrajustin/Jellyfin-child-server, branch `main`.
+Last updated: 2026-09-23 (session 3, see "Session 3" below — two of four items land unverified).
+Repository: https://github.com/parrajustin/Jellyfin-child-server, branch `main`.
 
 ## Goal
 
@@ -300,8 +301,8 @@ Design choices
   (bounded by `DownloadWaitTimeoutSeconds`, default 15 minutes). Direct play does not wait.
 - The parent password is stored in `childserver.xml`, like Jellyfin's own Live TV provider passwords,
   so the child can sign in again after a token is revoked. Treat the data folder as sensitive.
-- The Alpine image uses Alpine's ffmpeg, not jellyfin-ffmpeg: no hardware acceleration and none of
-  Jellyfin's ffmpeg patches. Fine for the tests; a real device may want a different ffmpeg.
+- ~~The Alpine image uses Alpine's ffmpeg, not jellyfin-ffmpeg~~ — fixed in session 3: the image is
+  Ubuntu with jellyfin-ffmpeg8 and the VA-API drivers. Not yet built anywhere.
 - Goldens can only be produced in CI (no Docker on this machine), so every UI change costs a CI cycle.
   Playwright's bundled Chromium has no H.264 decoder, so browser playback in the suite relies on the
   child transcoding to what the web client negotiates.
@@ -327,6 +328,80 @@ Design choices
   CI it needs a real investigation rather than a rerun.
 - The sample media comes from file-examples.com, which blocks plain downloads; the clips are committed
   under `tests/e2e/media/samples/` with their hashes.
+
+## Session 3 (2026-09-23)
+
+Four items were asked for. Two are done and tested, one is written but unbuilt, one is blocked
+outside this repository.
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Dockerfile using the optimized jellyfin-ffmpeg | Written, **never built** — no container runtime available |
+| 2 | Headers always sent to the parent | Already true; one coverage hole closed, one documented |
+| 3 | An API/MCP an agent can drive | Done, 25 tests pass |
+| 4 | Live test against the real parent | **Blocked**: Cloudflare Access rejects the service token |
+
+### 1. jellyfin-ffmpeg
+
+The runtime stage was Alpine with `apk add ffmpeg`: no Jellyfin patches, no VA-API, QSV or NVENC,
+so every transcode ran in software. It now follows `linuxserver/docker-jellyfin` — Ubuntu resolute,
+the `repo.jellyfin.org` apt source, `jellyfin-ffmpeg8` at `/usr/lib/jellyfin-ffmpeg/ffmpeg` — while
+still building this fork from source rather than installing the `jellyfin` package. Leaving Alpine
+also drops the musl RID; the publish now picks the RID from `TARGETARCH`.
+
+`./release` checks the built image actually ships a Jellyfin ffmpeg build and that
+`JELLYFIN_FFMPEG` points at it, replacing the old "is it Alpine" check.
+
+**This has not been built.** What was verified instead, against the live indexes: both base image
+tags exist, `jellyfin-ffmpeg8` 8.1.2-5-resolute exists in the suite, the binary really does land at
+`/usr/lib/jellyfin-ffmpeg/ffmpeg` (confirmed from the .deb), the signing key is ASCII armored so
+`signed-by` works without gnupg, and every apt package named exists in resolute. That last check
+caught one: `mesa-va-drivers` is only a virtual package on this suite, so the real provider
+`libgl1-mesa-dri` is named instead.
+
+Note for whoever builds it: the SkiaSharp crash that forced commit `8458fb2` was a musl problem.
+On glibc the child could compose library posters again, so that workaround is now removable —
+but it was left alone, because nothing here could test the revert.
+
+### 3. The MCP server
+
+`tools/jellyfin-mcp` — ten tools covering sign in, every parent option, connection test, logs,
+save-and-connect, the parent's library list, sync, playback and status. No server-side changes were
+needed, so there is no new C# to keep in step.
+
+Two decisions worth keeping: the library list signs in to the *parent* and calls `/UserViews`, the
+same request the web client makes when a user opens the dashboard, rather than reporting what the
+child mirrored — that answers "what is actually on the parent", which is the question you have when
+a library is missing. And playback is tested by reading bytes, because `PlaybackInfo` answers
+happily for an item whose local file is still a placeholder.
+
+The client refuses to follow redirects: a Jellyfin call has no reason to redirect, so a 3xx means a
+gateway answered instead. For Cloudflare Access it decodes the `meta` JWT and reports
+`service_token_status`, which separates "no token sent" from "the policy does not allow this token".
+
+### 4. The live test, and why it did not happen
+
+`jellyfin.parrajustin.com` answers 302 to `parrajustin.cloudflareaccess.com` **with or without**
+the supplied service token, and Cloudflare's own signed verdict says `service_token_status: false`,
+`auth_status: NONE`. The token is not being accepted, so nothing behind Access is reachable and no
+part of the live test could run.
+
+The usual cause is that the Access application has no **Service Auth** policy including this token;
+a valid token on its own is not enough. It could also be rotated or expired. Either way the fix is
+in Cloudflare Zero Trust, not in this repository.
+
+What this did produce: the diagnostic above was written against this exact failure and verified
+against the live server, so the next attempt gets told why rather than getting an HTML parse error.
+
+### What is still unverified after this session
+
+- The container image has never been built, so the apt install, the RID change and the ffmpeg
+  checks in `./release` are all unproven.
+- The e2e suite has not been run. The new sync-under-headers test type checks and Playwright lists
+  it, nothing more.
+- No live parent has ever been reached.
+
+None of this is a claim that the work is wrong — it is a list of what nobody has watched run.
 
 ## Verification record
 

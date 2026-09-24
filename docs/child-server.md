@@ -114,10 +114,45 @@ When an item is not cached and the parent cannot be reached, `POST /Items/{id}/P
 answers with `ErrorCode: "ParentServerUnavailable"` and stream requests answer HTTP 503
 with the header `X-Application-Error-Code: ParentServerUnavailable`.
 
+## ffmpeg and hardware acceleration
+
+The image ships **jellyfin-ffmpeg**, the patched ffmpeg Jellyfin builds itself, rather than
+the distribution's ffmpeg. It is installed from `repo.jellyfin.org` at
+`/usr/lib/jellyfin-ffmpeg/ffmpeg`, and `JELLYFIN_FFMPEG` points the server at it.
+
+This is what makes hardware transcoding possible: the distribution build has none of
+Jellyfin's patches and no VA-API, QSV or NVENC support, so every transcode fell back to
+software. That matters more here than on a normal server, because a child server is meant to
+run on a small machine.
+
+The runtime stage follows `linuxserver/docker-jellyfin`: the same Ubuntu release, the same
+apt source, the same acceleration packages. It does **not** install the `jellyfin` package —
+the server in this image is this fork, built from source — so only ffmpeg and the runtime
+libraries come from the repository.
+
+| Build argument | Default | Purpose |
+|---|---|---|
+| `JELLYFIN_FFMPEG_PACKAGE` | `jellyfin-ffmpeg8` | Set to `jellyfin-ffmpeg7` for the older build |
+| `UBUNTU_SUITE` | `resolute` | Ubuntu release shared by the .NET images and the Jellyfin repository |
+
+To use a GPU, pass the device through and give the container access:
+
+```bash
+# Intel QSV / VA-API, or AMD
+docker run --device /dev/dri:/dev/dri ... jellyfin-child-server
+
+# NVIDIA (NVIDIA_DRIVER_CAPABILITIES and NVIDIA_VISIBLE_DEVICES are already set in the image)
+docker run --gpus all ... jellyfin-child-server
+```
+
+Then enable the matching hardware acceleration in the dashboard under Playback. `./release`
+refuses to tag an image whose ffmpeg is not a Jellyfin build, so this cannot regress
+silently.
+
 ## Building a release
 
 `./release` at the repository root is the only supported way to build the container. It
 builds the solution, runs the unit and integration suites, runs the browser suite against a
 real parent, gateway and child in Docker, and only then builds and tags the image from the
-repository `Dockerfile`, whose runtime stage is Alpine. Any failing step stops it and
+repository `Dockerfile`, whose runtime stage is Ubuntu with jellyfin-ffmpeg. Any failing step stops it and
 nothing is tagged. `./release --help` lists the options.

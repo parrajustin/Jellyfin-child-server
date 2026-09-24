@@ -1,16 +1,26 @@
 # syntax=docker/dockerfile:1.7
 #
-# Jellyfin child server image, built on Alpine Linux.
+# Jellyfin child server image, built on Ubuntu with jellyfin-ffmpeg.
 #
 #   docker build -t jellyfin-child-server .
 #
 # Stages:
 #   web     builds the jellyfin-web client at the tag matching this server
-#   server  publishes the .NET server (framework dependent, runtime linux-musl-x64)
-#   final   .NET ASP.NET runtime on Alpine plus ffmpeg and fonts
+#   server  publishes the .NET server (framework dependent)
+#   final   .NET ASP.NET runtime on Ubuntu plus jellyfin-ffmpeg, VA drivers and fonts
+#
+# The runtime stage follows linuxserver/docker-jellyfin: the same Ubuntu release, the same
+# repo.jellyfin.org apt source and the same hardware acceleration packages. It does not install
+# the `jellyfin` package, because the server in this image is this fork, built from source in
+# the `server` stage; only the ffmpeg build and the runtime dependencies come from the repo.
 ARG DOTNET_VERSION=10.0
 ARG NODE_VERSION=24
 ARG JELLYFIN_WEB_REF=v12.1
+# The Ubuntu release shared by the .NET images and the Jellyfin apt repository.
+ARG UBUNTU_SUITE=resolute
+# jellyfin-ffmpeg8 is the build Jellyfin 12.x targets. jellyfin-ffmpeg7 is also published for
+# this suite if a device needs the older one.
+ARG JELLYFIN_FFMPEG_PACKAGE=jellyfin-ffmpeg8
 
 # ---------------------------------------------------------------------------
 # Web client
@@ -28,18 +38,20 @@ RUN git clone --depth 1 --branch "${JELLYFIN_WEB_REF}" https://github.com/jellyf
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-alpine AS server
+FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-${UBUNTU_SUITE} AS server
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
+ARG TARGETARCH
 WORKDIR /src
 COPY . .
-# The runtime identifier is explicit. A portable publish copies every platform's native
-# libraries and leaves the choice to the host; on musl that has meant loading a native SkiaSharp
-# built for glibc and dying with SIGSEGV on the first image call. linux-musl-x64 publishes the
-# musl builds and nothing else.
-RUN dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+# The runtime identifier is explicit. A portable publish copies every platform's native libraries
+# and leaves the choice to the host, which has already cost us one SIGSEGV in SkiaSharp. Naming the
+# RID publishes one set and nothing else. The base is glibc now, so the RID is linux-x64 or
+# linux-arm64 rather than the linux-musl-x64 the Alpine image needed.
+RUN RID="linux-$(case "${TARGETARCH:-amd64}" in amd64) echo x64 ;; arm64) echo arm64 ;; *) echo "${TARGETARCH}" ;; esac)" \
+ && dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
       --configuration Release \
-      --runtime linux-musl-x64 \
+      --runtime "${RID}" \
       --no-self-contained \
       --output /server \
       -p:DebugSymbols=false \
@@ -48,22 +60,40 @@ RUN dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
 # ---------------------------------------------------------------------------
 # Final image
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}-${UBUNTU_SUITE}
+ARG UBUNTU_SUITE
+ARG JELLYFIN_FFMPEG_PACKAGE
+ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apk add --no-cache \
-      ca-certificates \
-      ffmpeg \
-      fontconfig \
-      font-noto \
-      freetype \
-      icu-data-full \
-      icu-libs \
-      libgcc \
-      libstdc++ \
-      ttf-dejavu \
-      tzdata \
-      wget \
- && fc-cache --force
+# The Jellyfin repository signing key is kept ASCII armored. apt accepts an armored key through
+# signed-by as long as the file is named .asc, which saves installing gnupg just to dearmor it.
+#
+# On the VA-API drivers: linuxserver installs `mesa-va-drivers`, which on this suite is only a
+# virtual package provided by libgl1-mesa-dri. Naming the real package keeps apt from depending on
+# that one provider staying unambiguous. intel-media-va-driver covers Intel QSV, which is what most
+# of the small machines this image is aimed at actually have.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    install -d -m 0755 /etc/apt/keyrings; \
+    curl -fsSL https://repo.jellyfin.org/ubuntu/jellyfin_team.gpg.key -o /etc/apt/keyrings/jellyfin.asc; \
+    chmod 0644 /etc/apt/keyrings/jellyfin.asc; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/jellyfin.asc] https://repo.jellyfin.org/ubuntu ${UBUNTU_SUITE} main" \
+      > /etc/apt/sources.list.d/jellyfin.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      "${JELLYFIN_FFMPEG_PACKAGE}" \
+      fonts-dejavu-core \
+      fonts-noto-core \
+      intel-media-va-driver \
+      libfontconfig1 \
+      libfreetype6 \
+      libgl1-mesa-dri \
+      libjemalloc2 \
+      tzdata; \
+    fc-cache --force; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     JELLYFIN_DATA_DIR=/config \
@@ -71,9 +101,12 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     JELLYFIN_CONFIG_DIR=/config/config \
     JELLYFIN_LOG_DIR=/config/log \
     JELLYFIN_WEB_DIR=/jellyfin/jellyfin-web \
-    JELLYFIN_FFMPEG=/usr/bin/ffmpeg \
+    JELLYFIN_FFMPEG=/usr/lib/jellyfin-ffmpeg/ffmpeg \
     XDG_CACHE_HOME=/cache \
-    HEALTHCHECK_URL=http://localhost:8096/health
+    HEALTHCHECK_URL=http://localhost:8096/health \
+    NVIDIA_DRIVER_CAPABILITIES="compute,video,utility" \
+    NVIDIA_VISIBLE_DEVICES=all \
+    MALLOC_TRIM_THRESHOLD_=131072
 
 COPY --from=server /server /jellyfin
 COPY --from=web /web /jellyfin/jellyfin-web
@@ -85,7 +118,7 @@ EXPOSE 8096
 VOLUME ["/config", "/cache", "/media"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget -q -O /dev/null "${HEALTHCHECK_URL}" || exit 1
+  CMD curl -fsS -o /dev/null "${HEALTHCHECK_URL}" || exit 1
 
 LABEL org.opencontainers.image.title="Jellyfin child server" \
       org.opencontainers.image.description="Jellyfin server that mirrors a parent Jellyfin server and caches only the media being watched" \

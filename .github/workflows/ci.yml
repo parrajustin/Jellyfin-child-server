@@ -12,7 +12,7 @@ on:
         default: false
         required: false
       release:
-        description: Run ./release (every suite, then build and tag the Alpine image)
+        description: Run ./release (every suite, then build and tag the image)
         type: boolean
         default: false
         required: false
@@ -105,7 +105,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       # ./release runs the unit and integration suites, then the Docker browser suite, and only
-      # then builds and tags the Alpine image. It fails the job at the first step that fails.
+      # then builds and tags the image. It fails the job at the first step that fails.
       - name: Release
         run: bash ./release
 

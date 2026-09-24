@@ -9,7 +9,8 @@
 # Order matters: the .NET suites run first because they are the fastest way to find a break, then
 # the browser suite in Docker against a real parent and child, and only then is the image built.
 # Nothing is tagged unless every step above it passed. The image is built from the repository
-# Dockerfile, whose runtime stage is Alpine (mcr.microsoft.com/dotnet/aspnet:10.0-alpine).
+# Dockerfile, whose runtime stage is Ubuntu (mcr.microsoft.com/dotnet/aspnet:10.0-resolute) with
+# jellyfin-ffmpeg from repo.jellyfin.org; the build is checked for that ffmpeg before it is tagged.
 #
 # Needs: bash, dotnet 10, docker with the compose plugin, node (for the fixture library).
 set -euo pipefail
@@ -105,7 +106,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. The image, Alpine based, only now
+# 3. The image, with jellyfin-ffmpeg, only now
 # ---------------------------------------------------------------------------
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -122,11 +123,24 @@ build_args+=(--label "org.opencontainers.image.version=$version")
 build_args+=(.)
 docker "${build_args[@]}" || fail "the image did not build"
 
-step "image built; checking it is Alpine"
-if docker run --rm --entrypoint sh "${tags[0]}" -c 'cat /etc/os-release' | grep -qi alpine; then
-  echo "[release] base image is Alpine"
+# The point of the image is the patched ffmpeg, so prove it is the one that ended up in it. A
+# distro ffmpeg would still run and still transcode; it just would not have Jellyfin's patches or
+# the hardware acceleration, and nothing else in the suite would notice.
+step "image built; checking it ships jellyfin-ffmpeg"
+ffmpeg_banner=$(docker run --rm --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg "${tags[0]}" -version 2>&1 | head -n 1) \
+  || fail "jellyfin-ffmpeg is not at /usr/lib/jellyfin-ffmpeg/ffmpeg in the built image"
+if grep -qi jellyfin <<<"$ffmpeg_banner"; then
+  echo "[release] ffmpeg is the Jellyfin build: $ffmpeg_banner"
 else
-  fail "the built image is not Alpine based"
+  fail "the ffmpeg in the image is not a Jellyfin build: $ffmpeg_banner"
+fi
+
+step "checking the server is pointed at jellyfin-ffmpeg"
+configured_ffmpeg=$(docker run --rm --entrypoint sh "${tags[0]}" -c 'printf %s "$JELLYFIN_FFMPEG"')
+if [[ "$configured_ffmpeg" == "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]]; then
+  echo "[release] JELLYFIN_FFMPEG=$configured_ffmpeg"
+else
+  fail "JELLYFIN_FFMPEG is '$configured_ffmpeg', not the jellyfin-ffmpeg build"
 fi
 
 if [[ $do_push -eq 1 ]]; then

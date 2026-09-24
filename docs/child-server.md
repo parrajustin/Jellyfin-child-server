@@ -151,6 +151,30 @@ docker run -d --name child-server \
   xerofuzzion/jellyfin-child-server:latest-x86_64
 ```
 
+## Deploying with compose
+
+[`docker/docker-compose.yml`](../docker/docker-compose.yml) is a single-host deployment. Copy that
+file and `child-server.env.example` to the server, then:
+
+```bash
+cp child-server.env.example child-server.env    # fill it in
+docker compose up -d
+docker compose logs -f
+```
+
+The two volumes are not interchangeable, and which disk each lands on is the main decision:
+
+| Mount | Holds | Sizing |
+|---|---|---|
+| `/config` | database, mirrored library tree (placeholders and metadata), `childserver.xml` | Small and precious. Back it up. |
+| `/cache` | the video bytes fetched from the parent, bounded by `CHILD_MAX_CACHE_SIZE_MB` | Large and disposable. Losing it costs a re-download. Put it on the biggest disk. |
+
+Override paths, the published port and the image tag with `CHILD_SERVER_CONFIG_DIR`,
+`CHILD_SERVER_CACHE_DIR`, `CHILD_SERVER_PORT` and `CHILD_SERVER_IMAGE` (use the `-aarch64` tag on
+arm64). Hardware transcoding and a tmpfs for transcode scratch are commented blocks in the file —
+device passthrough is left off by default because compose refuses to start when a named device does
+not exist, rather than falling back to software.
+
 ## ffmpeg and hardware acceleration
 
 The image ships **jellyfin-ffmpeg**, the patched ffmpeg Jellyfin builds itself, rather than

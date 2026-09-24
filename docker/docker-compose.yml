@@ -1,0 +1,95 @@
+# Jellyfin child server: a single-host deployment.
+#
+#   cp child-server.env.example child-server.env   # then fill it in
+#   docker compose up -d
+#   docker compose logs -f
+#
+# Everything the server needs comes from child-server.env — the entrypoint writes
+# <config>/childserver.xml from it on every boot, so there is no first-run wizard to click
+# through and no secret baked into the image. See child-server.env.example for the full list.
+#
+# The two volumes are not equivalent and it matters which disk each one lands on:
+#
+#   /config   small and precious. The database, the mirrored library tree (zero byte
+#             placeholders and metadata) and childserver.xml. Back this up.
+#   /cache    large and disposable. The actual video bytes fetched from the parent, bounded by
+#             CHILD_MAX_CACHE_SIZE_MB. Losing it costs a re-download, nothing more. Point this
+#             at the biggest disk you have; on a machine with little disk, that is the whole
+#             reason this server exists.
+
+# Without this the project is named after the directory, which is "docker".
+name: jellyfin-child-server
+
+services:
+  child-server:
+    image: ${CHILD_SERVER_IMAGE:-xerofuzzion/jellyfin-child-server:latest-x86_64}
+    container_name: child-server
+    restart: unless-stopped
+
+    env_file:
+      - child-server.env
+
+    ports:
+      - "${CHILD_SERVER_PORT:-8096}:8096"
+
+    volumes:
+      - ${CHILD_SERVER_CONFIG_DIR:-./data/config}:/config
+      - ${CHILD_SERVER_CACHE_DIR:-./data/cache}:/cache
+
+    # The image already defines a healthcheck against /health; it is restated here so the
+    # start period can be generous. A first boot mirrors the parent library, which on a large
+    # parent takes a while, and a container killed as unhealthy mid-mirror just starts over.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5m
+      retries: 3
+
+    # Without a bound, one bad day of logs fills the disk of a machine chosen for having a
+    # small one.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+    # ---------------------------------------------------------------------------
+    # Hardware transcoding — uncomment the block your machine has
+    # ---------------------------------------------------------------------------
+    #
+    # The image ships jellyfin-ffmpeg with VA-API, QSV and NVENC support, but the device still
+    # has to be passed in, and the acceleration then enabled in Dashboard -> Playback.
+    #
+    # Leave these commented if you have no GPU: compose fails to start when a named device
+    # does not exist, rather than quietly falling back to software.
+    #
+    # Intel (QSV / VA-API) or AMD:
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "${RENDER_GID:-989}"   # `getent group render | cut -d: -f3` on the host
+    #
+    # NVIDIA (needs the container toolkit; NVIDIA_DRIVER_CAPABILITIES is already set in the image):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video]
+
+    # ---------------------------------------------------------------------------
+    # Transcoding scratch space
+    # ---------------------------------------------------------------------------
+    #
+    # Transcodes are written under /cache. On a device with little disk — or one where /cache is
+    # a slow spinning disk — giving them a tmpfs keeps them off it entirely. Size it for the
+    # number of concurrent transcodes you expect; a segment or two of one stream is small, but
+    # this is RAM, and the container dies if it fills.
+    #
+    # tmpfs:
+    #   - /cache/transcodes:size=4g,mode=1777

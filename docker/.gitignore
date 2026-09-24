@@ -1,0 +1,8 @@
+# The real env file holds the parent password and the Cloudflare Access service token.
+# Only child-server.env.example is tracked.
+child-server.env
+*.env
+!*.env.example
+
+# Bind mount targets created by docker-compose.yml on first `up`.
+data/

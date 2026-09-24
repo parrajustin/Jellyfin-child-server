@@ -81,6 +81,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 # aimed at actually have — but it exists only for amd64, so on arm64 it has to be left out or the
 # whole apt install fails. The architecture is read with dpkg rather than TARGETARCH so this is
 # right whether or not the caller passed a build arg.
+#
+# `fontconfig`, not `libfontconfig1`: the library alone has no fc-cache binary, and Alpine's single
+# `fontconfig` package had bundled both. fontconfig depends on libfontconfig1, so naming it covers
+# the library too.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
@@ -94,9 +98,9 @@ RUN set -eux; \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then intel_driver="intel-media-va-driver"; fi; \
     apt-get install -y --no-install-recommends \
       "${JELLYFIN_FFMPEG_PACKAGE}" \
+      fontconfig \
       fonts-dejavu-core \
       fonts-noto-core \
-      libfontconfig1 \
       libfreetype6 \
       libgl1-mesa-dri \
       libjemalloc2 \
@@ -126,7 +130,19 @@ COPY --from=web /web /jellyfin/jellyfin-web
 # its parent URL and Cloudflare Access service token without anyone opening the dashboard, and so
 # the secrets can come from a Docker or Kubernetes secret. See docker/child-server.env.example.
 COPY docker/entrypoint.sh /usr/local/bin/child-server-entrypoint.sh
-RUN chmod +x /usr/local/bin/child-server-entrypoint.sh
+
+# Prove the entrypoint parses and that every binary it and the healthcheck call actually exists in
+# this image. Installing a library and assuming its command line tool came with it is how the
+# fontconfig/fc-cache mistake above happened; that one at least failed the build, but a tool missing
+# from the entrypoint would only surface as a container that dies on first start, and a missing
+# curl only as a healthcheck that never passes.
+RUN chmod +x /usr/local/bin/child-server-entrypoint.sh \
+ && bash -n /usr/local/bin/child-server-entrypoint.sh \
+ && for tool in bash sed mktemp mkdir chmod mv curl fc-cache; do \
+      command -v "$tool" > /dev/null || { echo "missing required tool: $tool" >&2; exit 1; }; \
+    done \
+ && test -x /usr/lib/jellyfin-ffmpeg/ffmpeg \
+ && /usr/lib/jellyfin-ffmpeg/ffmpeg -version | head -n 1 | grep -qi jellyfin
 
 RUN mkdir -p /config /cache /media \
  && chmod 777 /config /cache /media

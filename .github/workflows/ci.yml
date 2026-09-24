@@ -44,6 +44,32 @@ jobs:
           --no-build
           --verbosity minimal
 
+  mcp:
+    name: MCP server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/jellyfin-mcp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
   e2e:
     name: End-to-end (Docker)
     runs-on: ubuntu-latest

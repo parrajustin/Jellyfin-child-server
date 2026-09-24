@@ -2,8 +2,9 @@
  * 05 - custom request headers, as needed for a parent behind Cloudflare Access.
  *
  * The gate is told to require two service token headers on every request. The child must
- * send the configured headers with every call to the parent: connection tests, sign in and
- * media downloads. The last test checks the header rows on the settings page.
+ * send the configured headers with every call to the parent: connection tests, sign in,
+ * media downloads and the listing calls of a library sync. The last test checks the header
+ * rows on the settings page.
  * Preconditions: lib/global-setup.ts connected the child to the parent through the gate.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -120,6 +121,37 @@ test('saved headers carry over to sign in and media downloads', async () => {
   expect(download?.headers['cf-access-client-id']).toBe(REQUIRED['cf-access-client-id']);
   expect(download?.headers['cf-access-client-secret']).toBe(REQUIRED['cf-access-client-secret']);
   expect(download?.status).toBe(200);
+});
+
+test('a library sync sends the headers on every listing request', async () => {
+  // The mirror in global setup ran before any header requirement existed, so the listing paths had
+  // never been seen with one in force: only the two sign in calls and the media download were.
+  // Syncing again here puts /UserViews and the item queries through the gate under the requirement.
+  await gate.reset();
+  await child.waitForChildSync();
+
+  const requests = await gate.requests();
+  const views = requests.filter((r) => r.path.startsWith('/UserViews'));
+  const itemQueries = requests.filter((r) => /^\/Items\?/.test(r.path));
+
+  expect(views.length, 'a sync must list the parent views').toBeGreaterThan(0);
+  expect(itemQueries.length, 'a sync must query the parent items').toBeGreaterThan(0);
+
+  for (const request of [...views, ...itemQueries]) {
+    expect(request.headers['cf-access-client-id'], `on ${request.method} ${request.path}`).toBe(
+      REQUIRED['cf-access-client-id'],
+    );
+    expect(request.headers['cf-access-client-secret'], `on ${request.method} ${request.path}`).toBe(
+      REQUIRED['cf-access-client-secret'],
+    );
+    expect(request.status, `on ${request.method} ${request.path}`).toBeLessThan(400);
+  }
+
+  // Not covered here: the image fetch (`/Items/{id}/Images/...`). The mirror skips an image whose
+  // sidecar is already on disk (ChildLibraryMirror.FetchImageAsync), so a re-sync never requests
+  // one, and nothing in the suite can delete the sidecars — Cache/Clear only truncates the video
+  // files. Covering it needs a mirror from an empty data directory with the requirement already in
+  // force, which means requiring the headers in global setup rather than in this spec.
 });
 
 test('the settings page shows the header rows and the gateway outcome', async ({ page }) => {

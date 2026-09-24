@@ -94,6 +94,15 @@ step "running the unit and integration tests"
 dotnet test Jellyfin.sln --configuration "$CONFIGURATION" --no-build --verbosity minimal \
   || fail "unit or integration tests failed"
 
+# The MCP server ships in the repository, so it is gated like everything else. It needs only node.
+if command -v node >/dev/null 2>&1; then
+  step "running the MCP server tests"
+  (cd tools/jellyfin-mcp && npm ci --no-audit --no-fund && npm test) \
+    || fail "the MCP server tests failed"
+else
+  step "skipping the MCP server tests (no node on PATH)"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. The browser suite, two servers in Docker
 # ---------------------------------------------------------------------------

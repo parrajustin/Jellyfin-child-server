@@ -104,6 +104,29 @@ if [ "$SKIP_TESTS" -eq 1 ]; then
   echo ">> skipping the gates (--skip-tests)"
 else
   if command -v dotnet > /dev/null 2>&1; then
+    # Jellyfin is an ASP.NET Core application, so it needs the Microsoft.AspNetCore.App runtime and
+    # its targeting pack. Distributions that split .NET into separate packages (Arch and its
+    # derivatives ship dotnet-sdk, dotnet-runtime and dotnet-targeting-pack without the aspnet
+    # ones) leave those out, and the build then fails with NETSDK1226 "Prune Package data not
+    # found", which says nothing about what is actually missing. Check first and say so.
+    if ! dotnet --list-runtimes 2> /dev/null | grep -q '^Microsoft\.AspNetCore\.App '; then
+      echo "error: the Microsoft.AspNetCore.App runtime is not installed." >&2
+      echo "       Jellyfin is an ASP.NET Core application and will not build without it." >&2
+      echo "       Arch and derivatives:  sudo pacman -S aspnet-runtime aspnet-targeting-pack" >&2
+      echo "       Debian and Ubuntu:     sudo apt install aspnetcore-runtime-10.0" >&2
+      exit 1
+    fi
+
+    # The runtime can be present while the reference assemblies are not, which fails the same way.
+    sdk_dir=$(dotnet --list-sdks 2> /dev/null | tail -n 1 | sed -n 's/.*\[\(.*\)\]/\1/p')
+    if [ -n "$sdk_dir" ] && [ -d "$(dirname "$sdk_dir")/packs" ] \
+      && [ ! -d "$(dirname "$sdk_dir")/packs/Microsoft.AspNetCore.App.Ref" ]; then
+      echo "error: the Microsoft.AspNetCore.App targeting pack is missing from $(dirname "$sdk_dir")/packs." >&2
+      echo "       The runtime alone is not enough to build; the reference assemblies are needed too." >&2
+      echo "       Arch and derivatives:  sudo pacman -S aspnet-targeting-pack" >&2
+      exit 1
+    fi
+
     echo ">> dotnet build and test"
     dotnet build Jellyfin.sln --configuration Release \
       || { echo "error: the solution does not build" >&2; exit 1; }

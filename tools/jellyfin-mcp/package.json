@@ -1,0 +1,28 @@
+{
+  "name": "jellyfin-child-server-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCP server that lets an agent configure and exercise a Jellyfin child server",
+  "type": "module",
+  "bin": {
+    "jellyfin-child-server-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

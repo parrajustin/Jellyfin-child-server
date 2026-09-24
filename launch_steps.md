@@ -314,11 +314,16 @@ unnoticed.
 
 ## Not yet proven
 
-Honest about what nobody has watched run end to end:
+Honest about what nobody has watched run end to end. The images are built and published for both
+architectures, but that proves they assemble, not that they work:
 
-- No deployment of this image on a real low-disk device.
-- The arm64 image has not been built.
+- **No container started from this image has run yet.** In particular the entrypoint writes
+  `childserver.xml` by hand, and that file has been validated against the property names in the C#
+  model but never round tripped through the server that reads it. If step 3 shows an empty Parent
+  server page despite the startup log reporting it wrote the file, that is the thing to suspect —
+  say so, and configure it through the dashboard meanwhile.
+- No deployment on a real low-disk device.
 - Behaviour against a parent library much larger than the test fixture. A real parent with ~12,000
   items was reachable and listed correctly, but no full mirror of one has been completed.
-- The Cloudflare Access path has been verified against a live tunnel for listing and sign in, but
-  not through a child server end to end.
+- The Cloudflare Access path is verified against a live tunnel for sign in and listing, but not
+  through a child server end to end.

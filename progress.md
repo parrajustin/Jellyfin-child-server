@@ -336,10 +336,10 @@ outside this repository.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Dockerfile using the optimized jellyfin-ffmpeg | Written, **never built** — no container runtime available |
+| 1 | Dockerfile using the optimized jellyfin-ffmpeg | Done; built and published for both architectures |
 | 2 | Headers always sent to the parent | Already true; one coverage hole closed, one documented |
 | 3 | An API/MCP an agent can drive | Done, 25 tests pass |
-| 4 | Live test against the real parent | **Blocked**: Cloudflare Access rejects the service token |
+| 4 | Live test against the real parent | Parent reached and listed; not yet through a child server |
 
 ### 1. jellyfin-ffmpeg
 
@@ -352,12 +352,19 @@ also drops the musl RID; the publish now picks the RID from `TARGETARCH`.
 `./release` checks the built image actually ships a Jellyfin ffmpeg build and that
 `JELLYFIN_FFMPEG` points at it, replacing the old "is it Alpine" check.
 
-**This has not been built.** What was verified instead, against the live indexes: both base image
-tags exist, `jellyfin-ffmpeg8` 8.1.2-5-resolute exists in the suite, the binary really does land at
-`/usr/lib/jellyfin-ffmpeg/ffmpeg` (confirmed from the .deb), the signing key is ASCII armored so
-`signed-by` works without gnupg, and every apt package named exists in resolute. That last check
-caught one: `mesa-va-drivers` is only a virtual package on this suite, so the real provider
-`libgl1-mesa-dri` is named instead.
+**Built and published**: `xerofuzzion/jellyfin-child-server` `v0-x86_64` and `v0-aarch64`, plus the
+matching `latest-` tags, from commit `2e83f56`. 328 MB and 291 MB. The build guard in the final
+stage runs `ffmpeg -version | grep -qi jellyfin`, so a successful build is itself proof that
+jellyfin-ffmpeg is installed and is the Jellyfin build, on both architectures. The published arm64
+image config confirms the entrypoint, `JELLYFIN_FFMPEG=/usr/lib/jellyfin-ffmpeg/ffmpeg`, the
+NVIDIA capabilities and the curl healthcheck.
+
+Three package mistakes were caught on the way, each by checking rather than by assuming:
+`mesa-va-drivers` is only a virtual package on this suite, so the real provider `libgl1-mesa-dri`
+is named; `intel-media-va-driver` exists only for amd64 and would have failed the first arm64
+build outright; and `fc-cache` lives in `fontconfig`, not in `libfontconfig1`, which is what
+Alpine's single package had hidden. The last one did fail a build, which is why the final stage
+now asserts that every binary the entrypoint and the healthcheck call actually exists.
 
 Note for whoever builds it: the SkiaSharp crash that forced commit `8458fb2` was a musl problem.
 On glibc the child could compose library posters again, so that workaround is now removable —
@@ -395,11 +402,16 @@ against the live server, so the next attempt gets told why rather than getting a
 
 ### What is still unverified after this session
 
-- The container image has never been built, so the apt install, the RID change and the ffmpeg
-  checks in `./release` are all unproven.
+- **No container started from this image has ever run.** Building and pushing proves the image
+  assembles; it does not prove the server comes up, that the entrypoint's generated
+  `childserver.xml` is accepted by the configuration manager, or that the healthcheck passes.
+  That last one matters most: the XML is hand written by a shell script and validated only against
+  the property names in the C# model, never by a round trip through XmlSerializer.
 - The e2e suite has not been run. The new sync-under-headers test type checks and Playwright lists
   it, nothing more.
-- No live parent has ever been reached.
+- No child server has been pointed at a live parent. The parent itself was reached, signed in to
+  and listed directly, but not through a child.
+- No deployment on a real low-disk device, and no mirror of a large parent.
 
 None of this is a claim that the work is wrong — it is a list of what nobody has watched run.
 

@@ -95,6 +95,59 @@ describe('gateway headers', () => {
   });
 });
 
+describe('a gateway that redirects to a login page', () => {
+  // Cloudflare Access answers 302 to its own login host rather than 403 when a service token is
+  // not accepted, and states the verdict in the `meta` JWT. Following that redirect would turn a
+  // precise answer into an HTML parse error, so the client must stop and explain.
+  let server: import('node:http').Server;
+  let baseUrl = '';
+
+  before(async () => {
+    const { createServer } = await import('node:http');
+    const claims = Buffer.from(
+      JSON.stringify({ service_token_status: false, auth_status: 'NONE' }),
+      'utf8',
+    ).toString('base64url');
+    const location =
+      `https://example.cloudflareaccess.com/cdn-cgi/access/login/jellyfin.example.com?meta=header.${claims}.signature`;
+    server = createServer((_req, res) => {
+      res.writeHead(302, { location });
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address() as import('node:net').AddressInfo;
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  after(async () => {
+    await new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())));
+  });
+
+  it('names the gateway instead of following it', async () => {
+    const client = new JellyfinClient({ baseUrl });
+    await assert.rejects(
+      () => ops.login(client, 'admin', 'secret'),
+      (error: Error) => {
+        assert.match(error.message, /cloudflareaccess\.com/);
+        assert.match(error.message, /never reached it/);
+        return true;
+      },
+    );
+  });
+
+  it('reports the service token verdict from the meta token', async () => {
+    const client = new JellyfinClient({ baseUrl });
+    await assert.rejects(
+      () => ops.login(client, 'admin', 'secret'),
+      (error: Error) => {
+        assert.match(error.message, /service_token_status=false/);
+        assert.match(error.message, /Service Auth policy/);
+        return true;
+      },
+    );
+  });
+});
+
 describe('configuration', () => {
   const stub = new StubJellyfin({ username: 'admin', password: 'secret' });
   let client: JellyfinClient;

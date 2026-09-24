@@ -93,6 +93,11 @@ export class JellyfinClient {
   /**
    * The single choke point for outbound requests. Every call goes through here, so the extra
    * gateway headers cannot be dropped by a new call site that forgets them.
+   *
+   * Redirects are not followed. A Jellyfin API call has no reason to redirect, so a 3xx means
+   * something in front of the server answered instead — an identity provider's login page, most
+   * often. Following it would turn a precise "the gateway rejected the credentials" into an
+   * HTML parse error or a DNS failure on a host we never meant to talk to.
    */
   async raw(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
@@ -101,10 +106,56 @@ export class JellyfinClient {
       headers.set(name, value);
     }
     const signal = init.signal ?? AbortSignal.timeout(this.timeoutMs);
-    return fetch(this.url(path), { ...init, headers, signal });
+    return fetch(this.url(path), { ...init, headers, signal, redirect: 'manual' });
+  }
+
+  /**
+   * Turns a redirect into the message the caller actually needs.
+   *
+   * Cloudflare Access states its verdict in the `meta` JWT of the login URL: when a service token
+   * was sent but not accepted, `service_token_status` is false. That distinguishes "the policy
+   * does not allow this token" from "no token was sent", which the status code alone does not.
+   */
+  private gatewayRedirectError(path: string, response: Response): JellyfinError {
+    const location = response.headers.get('location') ?? '';
+    let detail = '';
+    const meta = /[?&]meta=([^&]+)/.exec(location);
+    if (meta?.[1]) {
+      try {
+        const payload = meta[1].split('.')[1];
+        if (payload) {
+          const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+            service_token_status?: boolean;
+            auth_status?: string;
+          };
+          if (claims.service_token_status === false) {
+            detail =
+              ' Cloudflare Access reports service_token_status=false: the service token was not accepted. ' +
+              'Check that the Access application has a Service Auth policy that includes this token, and ' +
+              'that the token has not been rotated or expired.';
+          } else if (claims.auth_status) {
+            detail = ` Cloudflare Access reports auth_status=${claims.auth_status}.`;
+          }
+        }
+      } catch {
+        // A redirect we cannot decode is still a redirect; the generic message below covers it.
+      }
+    }
+    const host = /^https?:\/\/([^/]+)/.exec(location)?.[1];
+    return new JellyfinError(
+      `GET ${this.url(path)} -> HTTP ${response.status} redirect to ${host ?? 'another host'}. ` +
+        'A gateway in front of the server answered instead of Jellyfin, so the request never ' +
+        `reached it.${detail}`,
+      response.status,
+      location,
+      this.url(path),
+    );
   }
 
   private async readJson<T>(method: string, path: string, response: Response): Promise<T> {
+    if (response.status >= 300 && response.status < 400) {
+      throw this.gatewayRedirectError(path, response);
+    }
     const text = await response.text();
     if (!response.ok) {
       throw new JellyfinError(
@@ -136,6 +187,9 @@ export class JellyfinClient {
 
   async getText(path: string): Promise<string> {
     const response = await this.raw(path, { method: 'GET' });
+    if (response.status >= 300 && response.status < 400) {
+      throw this.gatewayRedirectError(path, response);
+    }
     const text = await response.text();
     if (!response.ok) {
       throw new JellyfinError(

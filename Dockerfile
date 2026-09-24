@@ -25,7 +25,9 @@ ARG JELLYFIN_FFMPEG_PACKAGE=jellyfin-ffmpeg8
 # ---------------------------------------------------------------------------
 # Web client
 # ---------------------------------------------------------------------------
-FROM node:${NODE_VERSION}-alpine AS web
+# Pinned to the build platform: this is a webpack build producing platform independent static
+# files, so running it under QEMU for an arm64 image would cost hours and change nothing.
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS web
 ARG JELLYFIN_WEB_REF
 ENV JELLYFIN_VERSION=${JELLYFIN_WEB_REF}
 RUN apk add --no-cache git
@@ -38,7 +40,10 @@ RUN git clone --depth 1 --branch "${JELLYFIN_WEB_REF}" https://github.com/jellyf
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-${UBUNTU_SUITE} AS server
+# Also pinned to the build platform. A framework dependent publish cross compiles: naming the RID
+# is enough, the SDK does not need to be running on the target architecture. So an arm64 image is
+# built at native speed here and only the final stage is emulated, where it just runs apt.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:${DOTNET_VERSION}-${UBUNTU_SUITE} AS server
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
 ARG TARGETARCH
@@ -111,6 +116,12 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 COPY --from=server /server /jellyfin
 COPY --from=web /web /jellyfin/jellyfin-web
 
+# Seeds <config>/childserver.xml from the environment before starting, so a container can be given
+# its parent URL and Cloudflare Access service token without anyone opening the dashboard, and so
+# the secrets can come from a Docker or Kubernetes secret. See docker/child-server.env.example.
+COPY docker/entrypoint.sh /usr/local/bin/child-server-entrypoint.sh
+RUN chmod +x /usr/local/bin/child-server-entrypoint.sh
+
 RUN mkdir -p /config /cache /media \
  && chmod 777 /config /cache /media
 
@@ -125,4 +136,4 @@ LABEL org.opencontainers.image.title="Jellyfin child server" \
       org.opencontainers.image.source="https://github.com/parrajustin/Jellyfin-child-server" \
       org.opencontainers.image.licenses="GPL-2.0"
 
-ENTRYPOINT ["dotnet", "/jellyfin/jellyfin.dll"]
+ENTRYPOINT ["/usr/local/bin/child-server-entrypoint.sh"]

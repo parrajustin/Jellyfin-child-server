@@ -114,6 +114,43 @@ When an item is not cached and the parent cannot be reached, `POST /Items/{id}/P
 answers with `ErrorCode: "ParentServerUnavailable"` and stream requests answer HTTP 503
 with the header `X-Application-Error-Code: ParentServerUnavailable`.
 
+## Configuration by environment
+
+A container has no dashboard on first boot, so the image seeds the parent configuration from the
+environment before starting. Full list with comments in
+[`docker/child-server.env.example`](../docker/child-server.env.example).
+
+Setting `CHILD_PARENT_URL` makes the environment **authoritative**: `<config>/childserver.xml` is
+rewritten from these values on every boot and dashboard edits are replaced. Leave every
+`CHILD_PARENT_*` variable unset and the dashboard stays in charge. The access token is not written —
+the server signs in again with the stored password, so the only cost of a restart is one sign in.
+
+| Variable | Purpose |
+|---|---|
+| `CHILD_PARENT_URL` | Parent base URL. Setting it is what switches env control on. |
+| `CHILD_PARENT_USERNAME` | Account on the parent the child signs in as |
+| `CHILD_PARENT_PASSWORD` | Its password |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | Cloudflare Access service token |
+| `CHILD_PARENT_HEADERS` | Any other gateway headers: `Name: value` pairs, `;` or newline separated |
+| `CHILD_PREFETCH_EPISODE_COUNT` | Episodes fetched ahead (default 4) |
+| `CHILD_MAX_CACHE_SIZE_MB` | Cache ceiling, 0 for none (default 5120) |
+| `CHILD_DOWNLOAD_WAIT_TIMEOUT_SECONDS` | How long playback waits for a download (default 900) |
+| `CHILD_SYNC_INTERVAL_HOURS` | Hours between mirrors (default 6) |
+| `CHILD_LIBRARY_PATH` | Where the mirrored library lives |
+
+Every secret has a `_FILE` form read from the named path, for Docker secrets and Kubernetes secret
+mounts, and it wins over the inline value. Prefer it — an `--env-file` value shows up in
+`docker inspect`, a mounted file does not. Secrets are never baked into the image and never logged;
+the startup line reports only `password=set` / `headers=set`.
+
+```bash
+docker run -d --name child-server \
+  --env-file child-server.env \
+  -v /srv/child/config:/config -v /srv/child/cache:/cache \
+  --device /dev/dri:/dev/dri -p 8096:8096 \
+  xerofuzzion/jellyfin-child-server:latest-x86_64
+```
+
 ## ffmpeg and hardware acceleration
 
 The image ships **jellyfin-ffmpeg**, the patched ffmpeg Jellyfin builds itself, rather than
@@ -149,9 +186,26 @@ Then enable the matching hardware acceleration in the dashboard under Playback. 
 refuses to tag an image whose ffmpeg is not a Jellyfin build, so this cannot regress
 silently.
 
-## Building a release
+## Publishing the image
 
-`./release` at the repository root is the only supported way to build the container. It
+`./release.sh` builds and pushes `xerofuzzion/jellyfin-child-server:v<N>-<arch>` plus
+`latest-<arch>`, where `<N>` comes from `version.json` and is bumped only after every push
+succeeds. It runs the fast gates first (dotnet, MCP, entrypoint) but not the Docker e2e suite.
+
+```bash
+./release.sh                 # x86_64 only
+./release.sh --arm64         # also aarch64
+./release.sh --dry-run       # build locally, push nothing
+```
+
+aarch64 is cheap here, unlike the other stacks in this monorepo: the web and server stages are
+pinned to `$BUILDPLATFORM` and a framework dependent .NET publish cross compiles from naming the
+RID, so only the final stage is emulated and all it does is run apt. That stage still needs binfmt
+registered (`docker run --privileged tonistiigi/binfmt --install arm64`).
+
+## Building a release locally
+
+`./release` is the local gate — it does not push. It
 builds the solution, runs the unit and integration suites, runs the browser suite against a
 real parent, gateway and child in Docker, and only then builds and tags the image from the
 repository `Dockerfile`, whose runtime stage is Ubuntu with jellyfin-ffmpeg. Any failing step stops it and

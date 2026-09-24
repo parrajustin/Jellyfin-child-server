@@ -103,6 +103,9 @@ else
   step "skipping the MCP server tests (no node on PATH)"
 fi
 
+step "running the entrypoint environment tests"
+bash tests/env/entrypoint.test.sh || fail "the entrypoint environment tests failed"
+
 # ---------------------------------------------------------------------------
 # 2. The browser suite, two servers in Docker
 # ---------------------------------------------------------------------------

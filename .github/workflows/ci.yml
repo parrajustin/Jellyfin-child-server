@@ -44,6 +44,11 @@ jobs:
           --no-build
           --verbosity minimal
 
+      # The entrypoint writes the config the server reads, so a break here produces a container
+      # that silently ignores its environment. Needs only bash and python3.
+      - name: Entrypoint environment tests
+        run: bash tests/env/entrypoint.test.sh
+
   mcp:
     name: MCP server
     runs-on: ubuntu-latest

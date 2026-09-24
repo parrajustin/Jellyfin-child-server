@@ -4,6 +4,10 @@ A Jellyfin server that mirrors a parent Jellyfin server and keeps only the media
 watched on its own disk. This document covers configuration; `progress.md` at the repository
 root tracks the project itself.
 
+Standing one up for the first time is a sequence rather than a set of settings — see
+[launch_steps.md](../launch_steps.md) for deploy, first boot, connect, mirror, test playback and
+point clients at it, plus the same flow driven through the MCP server.
+
 ## Connecting to the parent
 
 Open the dashboard and pick **Parent server** in the menu (or go to

@@ -75,8 +75,12 @@ ARG DEBIAN_FRONTEND=noninteractive
 #
 # On the VA-API drivers: linuxserver installs `mesa-va-drivers`, which on this suite is only a
 # virtual package provided by libgl1-mesa-dri. Naming the real package keeps apt from depending on
-# that one provider staying unambiguous. intel-media-va-driver covers Intel QSV, which is what most
-# of the small machines this image is aimed at actually have.
+# that one provider staying unambiguous.
+#
+# intel-media-va-driver covers Intel QSV, which is what most of the small machines this image is
+# aimed at actually have — but it exists only for amd64, so on arm64 it has to be left out or the
+# whole apt install fails. The architecture is read with dpkg rather than TARGETARCH so this is
+# right whether or not the caller passed a build arg.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
@@ -86,16 +90,18 @@ RUN set -eux; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/jellyfin.asc] https://repo.jellyfin.org/ubuntu ${UBUNTU_SUITE} main" \
       > /etc/apt/sources.list.d/jellyfin.list; \
     apt-get update; \
+    intel_driver=""; \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then intel_driver="intel-media-va-driver"; fi; \
     apt-get install -y --no-install-recommends \
       "${JELLYFIN_FFMPEG_PACKAGE}" \
       fonts-dejavu-core \
       fonts-noto-core \
-      intel-media-va-driver \
       libfontconfig1 \
       libfreetype6 \
       libgl1-mesa-dri \
       libjemalloc2 \
-      tzdata; \
+      tzdata \
+      ${intel_driver}; \
     fc-cache --force; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
